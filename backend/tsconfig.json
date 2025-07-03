@@ -25,3 +25,10 @@
     "dist"
   ]
 }
+
+{
+  "compilerOptions": {
+    "module": "CommonJS",
+    "target": "ES2020"
+  }
+}

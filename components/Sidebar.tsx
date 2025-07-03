@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { NavItem, UserAccessLevel } from '../types';
 import BuildingOfficeIcon from './icons/BuildingOfficeIcon';
 import SquaresPlusIcon from './icons/SquaresPlusIcon';
@@ -31,15 +31,33 @@ const allNavItems: NavItem[] = [
   { name: 'Empresa', path: '/settings', icon: CogIcon, allowedRoles: [UserAccessLevel.ADMIN] },
 ];
 
-
 const Sidebar: React.FC<SidebarProps> = ({ currentRole, isOpen, setIsOpen }) => {
+  const navigate = useNavigate();
+  
   const availableNavItems = allNavItems.filter(item => 
     !item.allowedRoles || item.allowedRoles.includes(currentRole)
   );
 
-  const handleLinkClick = () => {
-    if (window.innerWidth < 768) { // md breakpoint
+  const handleLinkClick = (path: string, event: React.MouseEvent) => {
+    // Prevenir comportamento padrão do link
+    event.preventDefault();
+    
+    console.log(`🔗 Navegando para: ${path}`);
+    
+    // Fechar sidebar no mobile
+    if (window.innerWidth < 768) {
       setIsOpen(false);
+    }
+    
+    // Usar navigate programaticamente
+    try {
+      navigate(path);
+      console.log(`✅ Navegação bem-sucedida para: ${path}`);
+    } catch (error) {
+      console.error(`❌ Erro na navegação para ${path}:`, error);
+      
+      // Fallback: usar window.location.hash
+      window.location.hash = path;
     }
   };
 
@@ -59,9 +77,9 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRole, isOpen, setIsOpen }) => 
                 <NavLink
                   to={item.path}
                   end={item.path === '/'}
-                  onClick={handleLinkClick}
+                  onClick={(e) => handleLinkClick(item.path, e)}
                   className={({ isActive }) =>
-                    `flex items-center py-2.5 px-4 rounded-md transition duration-200 group
+                    `flex items-center py-2.5 px-4 rounded-md transition duration-200 group cursor-pointer
                     ${isActive 
                         ? 'bg-yellow-500 text-black' 
                         : 'text-gray-400 hover:bg-gray-800 hover:text-yellow-500'}`

@@ -47,93 +47,578 @@ const testConnection = async () => {
   }
 };
 
-// ✅ CONFIGURAÇÃO CORS CORRIGIDA
+// CORS configuração completa
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
-      // Desenvolvimento
       'http://localhost:5173',
       'http://localhost:3000', 
       'https://localhost:5173',
       'https://localhost:3000',
-      
-      // ✅ PRODUÇÃO - Corrigido (remover barra final)
       'https://maxcontrol.f13design.com.br',
-      'http://maxcontrol.f13design.com.br',
-      
-      // Versões com www (se aplicável)
       'https://www.maxcontrol.f13design.com.br',
-      'http://www.maxcontrol.f13design.com.br'
+      'http://seu-dominio.com',
+      'http://www.seu-dominio.com'
     ];
     
-    console.log('🔍 CORS Check - Origin:', origin);
-    
-    // Permitir requests sem origin (mobile, postman, etc.)
-    if (!origin) {
-      console.log('✅ CORS: Request sem origin permitido');
-      return callback(null, true);
-    }
+    if (!origin) return callback(null, true);
     
     if (allowedOrigins.includes(origin)) {
-      console.log('✅ CORS: Origin permitido:', origin);
       callback(null, true);
     } else {
-      console.log('❌ CORS: Origin bloqueado:', origin);
-      console.log('📋 Origins permitidos:', allowedOrigins);
-      // EM PRODUÇÃO: Bloquear origins não autorizados
-      // callback(new Error('Not allowed by CORS'));
-      
-      // TEMPORÁRIO para debug: permitir todos
-      console.log('⚠️ CORS: Permitindo temporariamente para debug');
-      callback(null, true);
+      console.log('❌ CORS bloqueado para:', origin);
+      callback(null, true); // TEMPORÁRIO: permitir todas para debug
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With', 
-    'Accept', 
-    'Origin',
-    'Cache-Control',
-    'Pragma'
-  ],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   optionsSuccessStatus: 200
 };
 
-// Aplicar CORS antes de outros middlewares
 app.use(cors(corsOptions));
-
-// Middleware para logs detalhados
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  console.log(`🌐 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
-  console.log('📨 Headers:', {
-    origin: req.headers.origin,
-    host: req.headers.host,
-    userAgent: req.headers['user-agent']?.substring(0, 50) + '...'
-  });
-  
-  // Headers CORS manuais como fallback
-  if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,Pragma');
-  
-  if (req.method === 'OPTIONS') {
-    console.log('✅ Respondendo OPTIONS preflight');
-    return res.sendStatus(200);
-  }
-  next();
-});
 
 // Middleware básico
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.set('trust proxy', 1);
+
+// Headers CORS adicionais
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.json({ id, quoteNumber, ...quote });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const quote = req.body;
+    
+    // Buscar informações da empresa para snapshot (se não existir)
+    const [existingQuote] = await pool.execute('SELECT companyInfoSnapshot FROM quotes WHERE id = ?', [id]);
+    let companySnapshot = null;
+    
+    if (existingQuote.length > 0 && existingQuote[0].companyInfoSnapshot) {
+      companySnapshot = existingQuote[0].companyInfoSnapshot;
+    } else {
+      const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
+      companySnapshot = companyInfo.length > 0 ? JSON.stringify(companyInfo[0]) : null;
+    }
+    
+    await pool.execute(`
+      UPDATE quotes SET
+        customerId = ?, clientName = ?, clientContact = ?, subtotal = ?, discountType = ?, discountValue = ?,
+        discountAmountCalculated = ?, subtotalAfterDiscount = ?, totalCash = ?, totalCard = ?, downPaymentApplied = ?,
+        selectedPaymentMethod = ?, paymentDate = ?, deliveryDeadline = ?, status = ?, notes = ?,
+        salespersonUsername = ?, salespersonFullName = ?, companyInfoSnapshot = ?
+      WHERE id = ?
+    `, [
+      quote.customerId || null, quote.clientName, quote.clientContact || null, quote.subtotal,
+      quote.discountType, quote.discountValue, quote.discountAmountCalculated, quote.subtotalAfterDiscount,
+      quote.totalCash, quote.totalCard, quote.downPaymentApplied || 0, quote.selectedPaymentMethod || null,
+      quote.paymentDate || null, quote.deliveryDeadline || null, quote.status, quote.notes || null,
+      quote.salespersonUsername, quote.salespersonFullName || null, companySnapshot, id
+    ]);
+    
+    // Atualizar items - remover existentes e inserir novos
+    await pool.execute('DELETE FROM quote_items WHERE quoteId = ?', [id]);
+    
+    if (quote.items && quote.items.length > 0) {
+      for (const item of quote.items) {
+        await pool.execute(`
+          INSERT INTO quote_items (
+            id, quoteId, productId, productName, quantity, unitPrice, totalPrice, pricingModel,
+            width, height, itemCountForAreaCalc
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          generateId(), id, item.productId, item.productName, item.quantity, item.unitPrice,
+          item.totalPrice, item.pricingModel, item.width || null, item.height || null,
+          item.itemCountForAreaCalc || null
+        ]);
+      }
+    }
+    
+    res.json(quote);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM quote_items WHERE quoteId = ?', [id]);
+    await pool.execute('DELETE FROM quotes WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== USERS ROUTES =====
+app.get('/api/users', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT id, username, fullName, role FROM users ORDER BY username');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const user = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO users (id, username, fullName, password, role)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, user.username, user.fullName, user.password, user.role]);
+    
+    res.json({ id, username: user.username, fullName: user.fullName, role: user.role });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.body;
+    
+    if (user.password) {
+      await pool.execute(`
+        UPDATE users SET fullName = ?, password = ?, role = ? WHERE id = ?
+      `, [user.fullName, user.password, user.role, id]);
+    } else {
+      await pool.execute(`
+        UPDATE users SET fullName = ?, role = ? WHERE id = ?
+      `, [user.fullName, user.role, id]);
+    }
+    
+    res.json({ id, username: user.username, fullName: user.fullName, role: user.role });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM users WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ACCOUNTS PAYABLE ROUTES =====
+app.get('/api/accounts-payable', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM accounts_payable ORDER BY dueDate');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/accounts-payable', async (req, res) => {
+  try {
+    const entry = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, entry.name, entry.amount, entry.dueDate, entry.isPaid || false, entry.notes || null, 
+        entry.seriesId || null, entry.totalInstallmentsInSeries || null, entry.installmentNumberOfSeries || null]);
+    
+    res.json({ id, ...entry });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/accounts-payable/series', async (req, res) => {
+  try {
+    const { baseEntry, installments, frequency } = req.body;
+    const seriesId = generateId();
+    const installmentAmount = baseEntry.amount / installments;
+    const entries = [];
+    
+    for (let i = 0; i < installments; i++) {
+      const dueDate = new Date(baseEntry.dueDate);
+      if (frequency === 'weekly') {
+        dueDate.setDate(dueDate.getDate() + (i * 7));
+      } else { // monthly
+        dueDate.setMonth(dueDate.getMonth() + i);
+      }
+      
+      const entryId = generateId();
+      await pool.execute(`
+        INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [entryId, `${baseEntry.name} (${i + 1}/${installments})`, installmentAmount, 
+          dueDate.toISOString().split('T')[0], baseEntry.isPaid || false, baseEntry.notes || null,
+          seriesId, installments, i + 1]);
+      
+      entries.push({
+        id: entryId,
+        name: `${baseEntry.name} (${i + 1}/${installments})`,
+        amount: installmentAmount,
+        dueDate: dueDate.toISOString().split('T')[0],
+        isPaid: baseEntry.isPaid || false,
+        notes: baseEntry.notes || null,
+        seriesId,
+        totalInstallmentsInSeries: installments,
+        installmentNumberOfSeries: i + 1
+      });
+    }
+    
+    res.json(entries);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/accounts-payable/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const entry = req.body;
+    
+    await pool.execute(`
+      UPDATE accounts_payable SET name = ?, amount = ?, dueDate = ?, isPaid = ?, notes = ? WHERE id = ?
+    `, [entry.name, entry.amount, entry.dueDate, entry.isPaid, entry.notes || null, id]);
+    
+    res.json(entry);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/accounts-payable/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM accounts_payable WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/accounts-payable/series/:seriesId', async (req, res) => {
+  try {
+    const { seriesId } = req.params;
+    await pool.execute('DELETE FROM accounts_payable WHERE seriesId = ?', [seriesId]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/accounts-payable/:id/toggle-paid', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('UPDATE accounts_payable SET isPaid = NOT isPaid WHERE id = ?', [id]);
+    
+    const [updated] = await pool.execute('SELECT * FROM accounts_payable WHERE id = ?', [id]);
+    res.json(updated[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SUPPLIERS ROUTES =====
+app.get('/api/suppliers', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM suppliers ORDER BY name');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/suppliers', async (req, res) => {
+  try {
+    const supplier = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO suppliers (id, name, cnpj, phone, email, address, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [id, supplier.name, supplier.cnpj || null, supplier.phone || null, 
+        supplier.email || null, supplier.address || null, supplier.notes || null]);
+    
+    res.json({ id, ...supplier });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/suppliers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supplier = req.body;
+    
+    await pool.execute(`
+      UPDATE suppliers SET name = ?, cnpj = ?, phone = ?, email = ?, address = ?, notes = ? WHERE id = ?
+    `, [supplier.name, supplier.cnpj || null, supplier.phone || null,
+        supplier.email || null, supplier.address || null, supplier.notes || null, id]);
+    
+    res.json(supplier);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/suppliers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Deletar debts e credits primeiro (CASCADE deveria fazer isso)
+    await pool.execute('DELETE FROM supplier_debts WHERE supplierId = ?', [id]);
+    await pool.execute('DELETE FROM supplier_credits WHERE supplierId = ?', [id]);
+    await pool.execute('DELETE FROM suppliers WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SUPPLIER DEBTS ROUTES =====
+app.get('/api/suppliers/debts', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM supplier_debts ORDER BY dateAdded DESC');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/suppliers/debts', async (req, res) => {
+  try {
+    const debt = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO supplier_debts (id, supplierId, description, totalAmount, dateAdded)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, debt.supplierId, debt.description || null, debt.totalAmount, debt.dateAdded]);
+    
+    res.json({ id, ...debt });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/suppliers/debts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM supplier_debts WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SUPPLIER CREDITS ROUTES =====
+app.get('/api/suppliers/supplier-credits', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM supplier_credits ORDER BY date DESC');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/suppliers/supplier-credits', async (req, res) => {
+  try {
+    const credit = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO supplier_credits (id, supplierId, amount, date, description)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, credit.supplierId, credit.amount, credit.date, credit.description || null]);
+    
+    res.json({ id, ...credit });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/suppliers/supplier-credits/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM supplier_credits WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Debug endpoint
+app.get('/api/debug', (req, res) => {
+  res.json({
+    session: req.session.user || 'none',
+    timestamp: new Date().toISOString(),
+    database: 'mysql-cpanel',
+    config: {
+      host: dbConfig.host,
+      user: dbConfig.user,
+      database: dbConfig.database,
+      port: dbConfig.port
+    },
+    headers: {
+      origin: req.headers.origin,
+      userAgent: req.headers['user-agent']
+    }
+  });
+});
+
+// Recreate schema
+app.get('/api/recreate-schema', async (req, res) => {
+  try {
+    await createAllTables();
+    res.json({ message: 'Schema MySQL recriado com sucesso' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Log de todas as rotas disponíveis
+console.log('📋 Rotas disponíveis:');
+console.log('   GET  /health');
+console.log('   GET  /api/test-db');
+console.log('   POST /api/auth/login');
+console.log('   GET  /api/auth/me');
+console.log('   POST /api/auth/logout');
+console.log('   GET  /api/company-info');
+console.log('   POST /api/company-info');
+console.log('   GET  /api/products');
+console.log('   POST /api/products');
+console.log('   PUT  /api/products/:id');
+console.log('   DELETE /api/products/:id');
+console.log('   GET  /api/categories');
+console.log('   POST /api/categories');
+console.log('   PUT  /api/categories/:id');
+console.log('   DELETE /api/categories/:id');
+console.log('   GET  /api/customers');
+console.log('   POST /api/customers');
+console.log('   PUT  /api/customers/:id');
+console.log('   DELETE /api/customers/:id');
+console.log('   GET  /api/quotes');
+console.log('   GET  /api/quotes/:id');
+console.log('   POST /api/quotes');
+console.log('   PUT  /api/quotes/:id');
+console.log('   DELETE /api/quotes/:id');
+console.log('   GET  /api/users');
+console.log('   POST /api/users');
+console.log('   PUT  /api/users/:id');
+console.log('   DELETE /api/users/:id');
+console.log('   GET  /api/accounts-payable');
+console.log('   POST /api/accounts-payable');
+console.log('   PUT  /api/accounts-payable/:id');
+console.log('   DELETE /api/accounts-payable/:id');
+console.log('   POST /api/accounts-payable/series');
+console.log('   DELETE /api/accounts-payable/series/:seriesId');
+console.log('   POST /api/accounts-payable/:id/toggle-paid');
+console.log('   GET  /api/suppliers');
+console.log('   POST /api/suppliers');
+console.log('   PUT  /api/suppliers/:id');
+console.log('   DELETE /api/suppliers/:id');
+console.log('   GET  /api/suppliers/debts');
+console.log('   POST /api/suppliers/debts');
+console.log('   DELETE /api/suppliers/debts/:id');
+console.log('   GET  /api/suppliers/supplier-credits');
+console.log('   POST /api/suppliers/supplier-credits');
+console.log('   DELETE /api/suppliers/supplier-credits/:id');
+
+// ============= MIDDLEWARE =============
+
+// 404 handler
+app.use('*', (req, res) => {
+  console.log('❌ 404:', req.method, req.originalUrl);
+  res.status(404).json({ 
+    message: 'Rota não encontrada',
+    path: req.originalUrl,
+    method: req.method
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err);
+  res.status(500).json({ 
+    message: 'Erro interno do servidor',
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal error'
+  });
+});
+
+// ============= STARTUP =============
+
+const startServer = async () => {
+  try {
+    console.log('🚀 Inicializando MaxControl com MySQL...');
+    console.log('🔍 Configuração do banco:', {
+      host: dbConfig.host,
+      user: dbConfig.user,
+      database: dbConfig.database,
+      port: dbConfig.port,
+      ssl: dbConfig.ssl
+    });
+    
+    // Test connection
+    const connected = await testConnection();
+    if (connected) {
+      console.log('✅ MySQL conectado, criando schema...');
+      await createAllTables();
+    } else {
+      console.log('⚠️ MySQL não conectado, servidor continuará...');
+    }
+    
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 MaxControl rodando na porta ${PORT}`);
+      console.log(`🗄️ Database: MySQL cPanel`);
+      console.log(`👤 Login padrão: admin/admin`);
+      console.log(`🔗 Health: http://localhost:${PORT}/health`);
+      console.log(`🔐 Auth: http://localhost:${PORT}/api/auth/me`);
+      console.log(`🔍 Debug: http://localhost:${PORT}/api/debug`);
+    });
+
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM recebido...');
+      server.close(() => process.exit(0));
+    });
+
+    process.on('SIGINT', () => {
+      console.log('SIGINT recebido...');
+      server.close(() => process.exit(0));
+    });
+
+  } catch (error) {
+    console.error('❌ Erro ao iniciar:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
+module.exports = app;.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
+  
+  console.log(`🌐 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // Configuração de sessão
 app.use(session({
@@ -141,12 +626,15 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // HTTPS em produção
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // 'none' para CORS cross-origin
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
+
+// Função para gerar ID único
+const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 // Schema MySQL automático
 const createAllTables = async () => {
@@ -198,7 +686,7 @@ const createAllTables = async () => {
         id VARCHAR(36) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         description TEXT,
-        pricingModel ENUM('unidade', 'm2'),
+        pricingModel ENUM('unidade', 'm2') NOT NULL,
         basePrice DECIMAL(10,2) NOT NULL,
         unit VARCHAR(50),
         customCashPrice DECIMAL(10,2),
@@ -206,7 +694,7 @@ const createAllTables = async () => {
         supplierCost DECIMAL(10,2),
         categoryId VARCHAR(36),
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (categoryId) REFERENCES categories(id)
+        FOREIGN KEY (categoryId) REFERENCES categories(id) ON DELETE SET NULL
       )
     `);
 
@@ -262,8 +750,9 @@ const createAllTables = async () => {
         notes TEXT,
         salespersonUsername VARCHAR(50) NOT NULL,
         salespersonFullName VARCHAR(100),
+        companyInfoSnapshot JSON,
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (customerId) REFERENCES customers(id)
+        FOREIGN KEY (customerId) REFERENCES customers(id) ON DELETE SET NULL
       )
     `);
 
@@ -281,8 +770,63 @@ const createAllTables = async () => {
         width DECIMAL(10,2),
         height DECIMAL(10,2),
         itemCountForAreaCalc INT,
-        FOREIGN KEY (quoteId) REFERENCES quotes(id) ON DELETE CASCADE,
-        FOREIGN KEY (productId) REFERENCES products(id)
+        FOREIGN KEY (quoteId) REFERENCES quotes(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Accounts Payable
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS accounts_payable (
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        dueDate DATE NOT NULL,
+        isPaid BOOLEAN DEFAULT FALSE,
+        notes TEXT,
+        seriesId VARCHAR(36),
+        totalInstallmentsInSeries INT,
+        installmentNumberOfSeries INT,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Suppliers
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        cnpj VARCHAR(20),
+        phone VARCHAR(20),
+        email VARCHAR(100),
+        address TEXT,
+        notes TEXT,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Supplier Debts
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS supplier_debts (
+        id VARCHAR(36) PRIMARY KEY,
+        supplierId VARCHAR(36) NOT NULL,
+        description TEXT,
+        totalAmount DECIMAL(10,2) NOT NULL,
+        dateAdded DATE NOT NULL,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (supplierId) REFERENCES suppliers(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Supplier Credits (Payments)
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS supplier_credits (
+        id VARCHAR(36) PRIMARY KEY,
+        supplierId VARCHAR(36) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        date DATE NOT NULL,
+        description TEXT,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (supplierId) REFERENCES suppliers(id) ON DELETE CASCADE
       )
     `);
 
@@ -453,37 +997,24 @@ app.get('/api/company-info', async (req, res) => {
 
 app.post('/api/company-info', async (req, res) => {
   try {
-    const { name, address, phone, email, cnpj, instagram, website } = req.body;
+    const { name, logoUrlDarkBg, logoUrlLightBg, address, phone, email, cnpj, instagram, website } = req.body;
     
-    // Verificar se já existe
     const [existing] = await pool.execute('SELECT id FROM company_info LIMIT 1');
     
     if (existing.length > 0) {
-      // Update
       await pool.execute(`
         UPDATE company_info 
-        SET name = ?, address = ?, phone = ?, email = ?, cnpj = ?, instagram = ?, website = ?
+        SET name = ?, logoUrlDarkBg = ?, logoUrlLightBg = ?, address = ?, phone = ?, email = ?, cnpj = ?, instagram = ?, website = ?
         WHERE id = ?
-      `, [name, address, phone, email, cnpj, instagram, website, existing[0].id]);
+      `, [name, logoUrlDarkBg, logoUrlLightBg, address, phone, email, cnpj, instagram, website, existing[0].id]);
     } else {
-      // Insert
       await pool.execute(`
-        INSERT INTO company_info (name, address, phone, email, cnpj, instagram, website)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [name, address, phone, email, cnpj, instagram, website]);
+        INSERT INTO company_info (name, logoUrlDarkBg, logoUrlLightBg, address, phone, email, cnpj, instagram, website)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [name, logoUrlDarkBg, logoUrlLightBg, address, phone, email, cnpj, instagram, website]);
     }
     
     res.json({ message: 'Informações salvas com sucesso' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== PRODUCTS ROUTES =====
-app.get('/api/products', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM products ORDER BY name');
-    res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -499,21 +1030,177 @@ app.get('/api/categories', async (req, res) => {
   }
 });
 
-// ===== CUSTOMERS ROUTES =====
-app.get('/api/customers', async (req, res) => {
+app.post('/api/categories', async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM customers ORDER BY name');
+    const { name } = req.body;
+    const id = generateId();
+    await pool.execute('INSERT INTO categories (id, name) VALUES (?, ?)', [id, name]);
+    res.json({ id, name });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    await pool.execute('UPDATE categories SET name = ? WHERE id = ?', [name, id]);
+    res.json({ id, name });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM categories WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== PRODUCTS ROUTES =====
+app.get('/api/products', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM products ORDER BY name');
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// ===== USERS ROUTES =====
-app.get('/api/users', async (req, res) => {
+app.post('/api/products', async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT id, username, fullName, role FROM users ORDER BY username');
-    res.json(rows);
+    const product = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO products (id, name, description, pricingModel, basePrice, unit, customCashPrice, customCardPrice, supplierCost, categoryId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, product.name, product.description, product.pricingModel, product.basePrice, product.unit, 
+        product.customCashPrice || null, product.customCardPrice || null, product.supplierCost || null, product.categoryId || null]);
+    
+    res.json({ id, ...product });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/products/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = req.body;
+    
+    await pool.execute(`
+      UPDATE products 
+      SET name = ?, description = ?, pricingModel = ?, basePrice = ?, unit = ?, customCashPrice = ?, customCardPrice = ?, supplierCost = ?, categoryId = ?
+      WHERE id = ?
+    `, [product.name, product.description, product.pricingModel, product.basePrice, product.unit,
+        product.customCashPrice || null, product.customCardPrice || null, product.supplierCost || null, product.categoryId || null, id]);
+    
+    res.json(product);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/products/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM products WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== CUSTOMERS ROUTES =====
+app.get('/api/customers', async (req, res) => {
+  try {
+    const [customers] = await pool.execute('SELECT * FROM customers ORDER BY name');
+    
+    // Buscar down payments para cada cliente
+    for (let customer of customers) {
+      const [downPayments] = await pool.execute(
+        'SELECT * FROM customer_down_payments WHERE customerId = ? ORDER BY date DESC',
+        [customer.id]
+      );
+      customer.downPayments = downPayments;
+    }
+    
+    res.json(customers);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/customers', async (req, res) => {
+  try {
+    const customer = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO customers (id, name, documentType, documentNumber, phone, email, address, city, postalCode)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, 
+        customer.address, customer.city, customer.postalCode]);
+    
+    // Inserir down payments se existirem
+    if (customer.downPayments && customer.downPayments.length > 0) {
+      for (const dp of customer.downPayments) {
+        await pool.execute(`
+          INSERT INTO customer_down_payments (id, customerId, amount, date, description)
+          VALUES (?, ?, ?, ?, ?)
+        `, [generateId(), id, dp.amount, dp.date, dp.description]);
+      }
+    }
+    
+    res.json({ id, ...customer });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/customers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const customer = req.body;
+    
+    await pool.execute(`
+      UPDATE customers 
+      SET name = ?, documentType = ?, documentNumber = ?, phone = ?, email = ?, address = ?, city = ?, postalCode = ?
+      WHERE id = ?
+    `, [customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email,
+        customer.address, customer.city, customer.postalCode, id]);
+    
+    // Atualizar down payments - remover existentes e inserir novos
+    await pool.execute('DELETE FROM customer_down_payments WHERE customerId = ?', [id]);
+    
+    if (customer.downPayments && customer.downPayments.length > 0) {
+      for (const dp of customer.downPayments) {
+        await pool.execute(`
+          INSERT INTO customer_down_payments (id, customerId, amount, date, description)
+          VALUES (?, ?, ?, ?, ?)
+        `, [dp.id || generateId(), id, dp.amount, dp.date, dp.description]);
+      }
+    }
+    
+    res.json(customer);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/customers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Deletar down payments primeiro (CASCADE deveria fazer isso automaticamente)
+    await pool.execute('DELETE FROM customer_down_payments WHERE customerId = ?', [id]);
+    await pool.execute('DELETE FROM customers WHERE id = ?', [id]);
+    res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -522,175 +1209,55 @@ app.get('/api/users', async (req, res) => {
 // ===== QUOTES ROUTES =====
 app.get('/api/quotes', async (req, res) => {
   try {
-    console.log('📋 Buscando quotes...');
-    const [rows] = await pool.execute(`
-      SELECT q.*, 
-             c.name as customerName,
-             GROUP_CONCAT(
-               JSON_OBJECT(
-                 'id', qi.id,
-                 'productId', qi.productId,
-                 'productName', qi.productName,
-                 'quantity', qi.quantity,
-                 'unitPrice', qi.unitPrice,
-                 'totalPrice', qi.totalPrice,
-                 'pricingModel', qi.pricingModel,
-                 'width', qi.width,
-                 'height', qi.height,
-                 'itemCountForAreaCalc', qi.itemCountForAreaCalc
-               )
-             ) as items_json
-      FROM quotes q
-      LEFT JOIN customers c ON q.customerId = c.id
-      LEFT JOIN quote_items qi ON q.id = qi.quoteId
-      GROUP BY q.id
-      ORDER BY q.createdAt DESC
-    `).catch(() => [[]]);
-
-    // Se não existir tabela, retornar array vazio
-    if (!rows || rows.length === 0) {
-      console.log('⚠️ Nenhum quote encontrado ou tabela não existe');
-      return res.json([]);
-    }
-
-    // Processar os resultados
-    const quotes = rows.map(row => {
-      let items = [];
-      if (row.items_json) {
+    const [quotes] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC');
+    
+    // Buscar items para cada quote
+    for (let quote of quotes) {
+      const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [quote.id]);
+      quote.items = items;
+      
+      // Parse JSON do companyInfoSnapshot
+      if (quote.companyInfoSnapshot && typeof quote.companyInfoSnapshot === 'string') {
         try {
-          const itemsStr = row.items_json.replace(/\]\[/g, ',');
-          items = JSON.parse(`[${itemsStr}]`);
+          quote.companyInfoSnapshot = JSON.parse(quote.companyInfoSnapshot);
         } catch (e) {
-          console.error('Erro ao parsear items:', e);
-          items = [];
+          quote.companyInfoSnapshot = null;
         }
       }
-
-      // Snapshot da empresa (mock para compatibilidade)
-      const companyInfoSnapshot = {
-        name: 'MaxControl Demo',
-        address: 'Rua Demo, 123',
-        phone: '(11) 99999-9999',
-        email: 'demo@maxcontrol.com'
-      };
-
-      return {
-        id: row.id,
-        quoteNumber: row.quoteNumber,
-        customerId: row.customerId,
-        clientName: row.clientName,
-        clientContact: row.clientContact,
-        items: items,
-        subtotal: parseFloat(row.subtotal) || 0,
-        discountType: row.discountType || 'none',
-        discountValue: parseFloat(row.discountValue) || 0,
-        discountAmountCalculated: parseFloat(row.discountAmountCalculated) || 0,
-        subtotalAfterDiscount: parseFloat(row.subtotalAfterDiscount) || 0,
-        totalCash: parseFloat(row.totalCash) || 0,
-        totalCard: parseFloat(row.totalCard) || 0,
-        downPaymentApplied: parseFloat(row.downPaymentApplied) || 0,
-        selectedPaymentMethod: row.selectedPaymentMethod,
-        paymentDate: row.paymentDate,
-        deliveryDeadline: row.deliveryDeadline,
-        status: row.status || 'draft',
-        notes: row.notes,
-        salespersonUsername: row.salespersonUsername,
-        salespersonFullName: row.salespersonFullName,
-        createdAt: row.createdAt,
-        companyInfoSnapshot: companyInfoSnapshot
-      };
-    });
-
-    console.log(`✅ Retornando ${quotes.length} quotes`);
+    }
+    
     res.json(quotes);
   } catch (error) {
-    console.error('❌ Erro ao buscar quotes:', error);
-    // Em caso de erro, retornar array vazio para não quebrar o frontend
-    res.json([]);
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.get('/api/quotes/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    console.log('📋 Buscando quote por ID:', id);
+    const [quotes] = await pool.execute('SELECT * FROM quotes WHERE id = ?', [id]);
     
-    const [rows] = await pool.execute(`
-      SELECT q.*, 
-             c.name as customerName,
-             GROUP_CONCAT(
-               JSON_OBJECT(
-                 'id', qi.id,
-                 'productId', qi.productId,
-                 'productName', qi.productName,
-                 'quantity', qi.quantity,
-                 'unitPrice', qi.unitPrice,
-                 'totalPrice', qi.totalPrice,
-                 'pricingModel', qi.pricingModel,
-                 'width', qi.width,
-                 'height', qi.height,
-                 'itemCountForAreaCalc', qi.itemCountForAreaCalc
-               )
-             ) as items_json
-      FROM quotes q
-      LEFT JOIN customers c ON q.customerId = c.id
-      LEFT JOIN quote_items qi ON q.id = qi.quoteId
-      WHERE q.id = ?
-      GROUP BY q.id
-    `, [id]).catch(() => [[]]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Quote não encontrado' });
+    if (quotes.length === 0) {
+      return res.status(404).json({ message: 'Orçamento não encontrado' });
     }
-
-    const row = rows[0];
-    let items = [];
-    if (row.items_json) {
+    
+    const quote = quotes[0];
+    
+    // Buscar items
+    const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [quote.id]);
+    quote.items = items;
+    
+    // Parse JSON do companyInfoSnapshot
+    if (quote.companyInfoSnapshot && typeof quote.companyInfoSnapshot === 'string') {
       try {
-        const itemsStr = row.items_json.replace(/\]\[/g, ',');
-        items = JSON.parse(`[${itemsStr}]`);
+        quote.companyInfoSnapshot = JSON.parse(quote.companyInfoSnapshot);
       } catch (e) {
-        console.error('Erro ao parsear items:', e);
-        items = [];
+        quote.companyInfoSnapshot = null;
       }
     }
-
-    const companyInfoSnapshot = {
-      name: 'MaxControl Demo',
-      address: 'Rua Demo, 123',
-      phone: '(11) 99999-9999',
-      email: 'demo@maxcontrol.com'
-    };
-
-    const quote = {
-      id: row.id,
-      quoteNumber: row.quoteNumber,
-      customerId: row.customerId,
-      clientName: row.clientName,
-      clientContact: row.clientContact,
-      items: items,
-      subtotal: parseFloat(row.subtotal) || 0,
-      discountType: row.discountType || 'none',
-      discountValue: parseFloat(row.discountValue) || 0,
-      discountAmountCalculated: parseFloat(row.discountAmountCalculated) || 0,
-      subtotalAfterDiscount: parseFloat(row.subtotalAfterDiscount) || 0,
-      totalCash: parseFloat(row.totalCash) || 0,
-      totalCard: parseFloat(row.totalCard) || 0,
-      downPaymentApplied: parseFloat(row.downPaymentApplied) || 0,
-      selectedPaymentMethod: row.selectedPaymentMethod,
-      paymentDate: row.paymentDate,
-      deliveryDeadline: row.deliveryDeadline,
-      status: row.status || 'draft',
-      notes: row.notes,
-      salespersonUsername: row.salespersonUsername,
-      salespersonFullName: row.salespersonFullName,
-      createdAt: row.createdAt,
-      companyInfoSnapshot: companyInfoSnapshot
-    };
-
+    
     res.json(quote);
   } catch (error) {
-    console.error('❌ Erro ao buscar quote:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -698,259 +1265,45 @@ app.get('/api/quotes/:id', async (req, res) => {
 app.post('/api/quotes', async (req, res) => {
   try {
     const quote = req.body;
-    console.log('💾 Criando novo quote...');
-
-    // Gerar ID e número do quote
-    const quoteId = Date.now().toString();
+    const id = generateId();
+    
+    // Gerar número do orçamento
     const quoteNumber = `ORC-${Date.now()}`;
-
-    // Inserir quote principal
+    
+    // Buscar informações da empresa para snapshot
+    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
+    const companySnapshot = companyInfo.length > 0 ? companyInfo[0] : null;
+    
     await pool.execute(`
       INSERT INTO quotes (
-        id, quoteNumber, customerId, clientName, clientContact,
-        subtotal, discountType, discountValue, discountAmountCalculated,
-        subtotalAfterDiscount, totalCash, totalCard, downPaymentApplied,
-        selectedPaymentMethod, paymentDate, deliveryDeadline, status,
-        notes, salespersonUsername, salespersonFullName
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, quoteNumber, customerId, clientName, clientContact, subtotal, discountType, discountValue,
+        discountAmountCalculated, subtotalAfterDiscount, totalCash, totalCard, downPaymentApplied,
+        selectedPaymentMethod, paymentDate, deliveryDeadline, status, notes, salespersonUsername,
+        salespersonFullName, companyInfoSnapshot
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      quoteId,
-      quoteNumber,
-      quote.customerId || null,
-      quote.clientName,
-      quote.clientContact || null,
-      quote.subtotal || 0,
-      quote.discountType || 'none',
-      quote.discountValue || 0,
-      quote.discountAmountCalculated || 0,
-      quote.subtotalAfterDiscount || 0,
-      quote.totalCash || 0,
-      quote.totalCard || 0,
-      quote.downPaymentApplied || 0,
-      quote.selectedPaymentMethod || null,
-      quote.paymentDate || null,
-      quote.deliveryDeadline || null,
-      quote.status || 'draft',
-      quote.notes || null,
-      quote.salespersonUsername || 'admin',
-      quote.salespersonFullName || 'Administrador'
+      id, quoteNumber, quote.customerId || null, quote.clientName, quote.clientContact || null,
+      quote.subtotal, quote.discountType, quote.discountValue, quote.discountAmountCalculated,
+      quote.subtotalAfterDiscount, quote.totalCash, quote.totalCard, quote.downPaymentApplied || 0,
+      quote.selectedPaymentMethod || null, quote.paymentDate || null, quote.deliveryDeadline || null,
+      quote.status, quote.notes || null, quote.salespersonUsername, quote.salespersonFullName || null,
+      JSON.stringify(companySnapshot)
     ]);
-
-    // Inserir items se existirem
+    
+    // Inserir items
     if (quote.items && quote.items.length > 0) {
       for (const item of quote.items) {
-        const itemId = `${quoteId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         await pool.execute(`
           INSERT INTO quote_items (
-            id, quoteId, productId, productName, quantity, unitPrice,
-            totalPrice, pricingModel, width, height, itemCountForAreaCalc
+            id, quoteId, productId, productName, quantity, unitPrice, totalPrice, pricingModel,
+            width, height, itemCountForAreaCalc
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-          itemId,
-          quoteId,
-          item.productId,
-          item.productName,
-          item.quantity || 0,
-          item.unitPrice || 0,
-          item.totalPrice || 0,
-          item.pricingModel || 'unidade',
-          item.width || null,
-          item.height || null,
+          generateId(), id, item.productId, item.productName, item.quantity, item.unitPrice,
+          item.totalPrice, item.pricingModel, item.width || null, item.height || null,
           item.itemCountForAreaCalc || null
         ]);
       }
     }
-
-    console.log('✅ Quote criado:', quoteNumber);
-    res.json({ id: quoteId, quoteNumber, ...quote });
-  } catch (error) {
-    console.error('❌ Erro ao criar quote:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const quote = req.body;
-    console.log('✏️ Atualizando quote:', id);
-
-    // Atualizar quote principal
-    await pool.execute(`
-      UPDATE quotes SET
-        clientName = ?, clientContact = ?, subtotal = ?, discountType = ?,
-        discountValue = ?, discountAmountCalculated = ?, subtotalAfterDiscount = ?,
-        totalCash = ?, totalCard = ?, downPaymentApplied = ?, selectedPaymentMethod = ?,
-        paymentDate = ?, deliveryDeadline = ?, status = ?, notes = ?
-      WHERE id = ?
-    `, [
-      quote.clientName,
-      quote.clientContact || null,
-      quote.subtotal || 0,
-      quote.discountType || 'none',
-      quote.discountValue || 0,
-      quote.discountAmountCalculated || 0,
-      quote.subtotalAfterDiscount || 0,
-      quote.totalCash || 0,
-      quote.totalCard || 0,
-      quote.downPaymentApplied || 0,
-      quote.selectedPaymentMethod || null,
-      quote.paymentDate || null,
-      quote.deliveryDeadline || null,
-      quote.status || 'draft',
-      quote.notes || null,
-      id
-    ]);
-
-    // Remover items antigos e inserir novos
-    await pool.execute('DELETE FROM quote_items WHERE quoteId = ?', [id]);
     
-    if (quote.items && quote.items.length > 0) {
-      for (const item of quote.items) {
-        const itemId = `${id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        await pool.execute(`
-          INSERT INTO quote_items (
-            id, quoteId, productId, productName, quantity, unitPrice,
-            totalPrice, pricingModel, width, height, itemCountForAreaCalc
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          itemId,
-          id,
-          item.productId,
-          item.productName,
-          item.quantity || 0,
-          item.unitPrice || 0,
-          item.totalPrice || 0,
-          item.pricingModel || 'unidade',
-          item.width || null,
-          item.height || null,
-          item.itemCountForAreaCalc || null
-        ]);
-      }
-    }
-
-    console.log('✅ Quote atualizado:', id);
-    res.json(quote);
-  } catch (error) {
-    console.error('❌ Erro ao atualizar quote:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log('🗑️ Deletando quote:', id);
-
-    // Deletar items primeiro (por causa da foreign key)
-    await pool.execute('DELETE FROM quote_items WHERE quoteId = ?', [id]);
-    
-    // Deletar quote
-    await pool.execute('DELETE FROM quotes WHERE id = ?', [id]);
-
-    console.log('✅ Quote deletado:', id);
-    res.status(204).send();
-  } catch (error) {
-    console.error('❌ Erro ao deletar quote:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== MOCK ROUTES para desenvolvimento =====
-app.get('/api/accounts-payable', (req, res) => {
-  res.json([]);
-});
-
-app.get('/api/suppliers', (req, res) => {
-  res.json([]);
-});
-
-// Debug endpoint
-app.get('/api/debug', (req, res) => {
-  res.json({
-    session: req.session.user || 'none',
-    timestamp: new Date().toISOString(),
-    database: 'mysql-cpanel',
-    config: {
-      host: dbConfig.host,
-      user: dbConfig.user,
-      database: dbConfig.database,
-      port: dbConfig.port
-    },
-    headers: {
-      origin: req.headers.origin,
-      userAgent: req.headers['user-agent']
-    }
-  });
-});
-
-// ============= MIDDLEWARE =============
-
-// 404 handler
-app.use('*', (req, res) => {
-  console.log('❌ 404:', req.method, req.originalUrl);
-  res.status(404).json({ 
-    message: 'Rota não encontrada',
-    path: req.originalUrl,
-    method: req.method
-  });
-});
-
-// Error handler
-app.use((err, req, res, next) => {
-  console.error('❌ Error:', err);
-  res.status(500).json({ 
-    message: 'Erro interno do servidor',
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal error'
-  });
-});
-
-// ============= STARTUP =============
-
-const startServer = async () => {
-  try {
-    console.log('🚀 Inicializando MaxControl com MySQL...');
-    console.log('🔍 Configuração do banco:', {
-      host: dbConfig.host,
-      user: dbConfig.user,
-      database: dbConfig.database,
-      port: dbConfig.port,
-      ssl: dbConfig.ssl
-    });
-    
-    // Test connection
-    const connected = await testConnection();
-    if (connected) {
-      console.log('✅ MySQL conectado, criando schema...');
-      await createAllTables();
-    } else {
-      console.log('⚠️ MySQL não conectado, servidor continuará...');
-    }
-    
-    const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 MaxControl rodando na porta ${PORT}`);
-      console.log(`🗄️ Database: MySQL cPanel`);
-      console.log(`👤 Login padrão: admin/admin`);
-      console.log(`🔗 Health: https://maxcontrol.onrender.com/health`);
-      console.log(`🔐 Auth: https://maxcontrol.onrender.com/api/auth/me`);
-      console.log(`🔍 Debug: https://maxcontrol.onrender.com/api/debug`);
-    });
-
-    process.on('SIGTERM', () => {
-      console.log('SIGTERM recebido...');
-      server.close(() => process.exit(0));
-    });
-
-    process.on('SIGINT', () => {
-      console.log('SIGINT recebido...');
-      server.close(() => process.exit(0));
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao iniciar:', error);
-    process.exit(1);
-  }
-};
-
-startServer();
-module.exports = app;
+    res

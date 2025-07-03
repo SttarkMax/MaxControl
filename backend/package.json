@@ -1,14 +1,13 @@
 {
   "name": "maxcontrol-backend",
   "version": "1.22.0",
-  "description": "Backend do sistema MaxControl - ERP para comunicação visual",
-  "type": "module",
+  "description": "Backend do sistema MaxControl",
+  "type": "commonjs",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "node --loader tsx/esm src/server.ts",
+    "dev": "node src/server.js",
     "build": "tsc",
-    "start": "node dist/server.js",
-    "test": "echo \"No tests specified\" && exit 0"
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -21,14 +20,10 @@
     "@types/cors": "^2.8.13",
     "@types/express-session": "^1.17.7",
     "@types/node": "^20.5.0",
-    "typescript": "^5.1.6",
-    "tsx": "^3.12.7"
+    "typescript": "^5.1.6"
   },
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
   }
-{
-  "type": "commonjs"
-}
 }

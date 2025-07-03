@@ -10,19 +10,15 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "removeComments": false,
+    "declaration": false,
+    "sourceMap": false,
+    "removeComments": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
     "noEmitOnError": false,
-    "preserveConstEnums": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "types": ["node"]
+    "preserveConstEnums": true
   },
   "include": [
     "src/**/*"

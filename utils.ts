@@ -2,10 +2,12 @@ import { Quote, QuoteStatus, Product, CompanyInfo, Category, Customer, User, Acc
 
 // --- API Service Layer ---
 
-// Configuração para ambiente de produção
-const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://maxcontrol.onrender.com/api' // ⚠️ SUBSTITUIR pela sua URL do Render
-  : 'http://localhost:3001/api';
+// ✅ CONFIGURAÇÃO CORRIGIDA PARA PRODUÇÃO
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:3001/api' // Desenvolvimento
+  : 'https://maxcontrol.onrender.com/api'; // ⚠️ SUBSTITUA pela sua URL real do Render
+
+console.log('🔧 API_BASE_URL configurada para:', API_BASE_URL);
 
 /**
  * A generic fetch wrapper for making API calls.
@@ -15,18 +17,28 @@ const API_BASE_URL = process.env.NODE_ENV === 'production'
  * @returns The JSON response from the API.
  */
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
+  const fullUrl = `${API_BASE_URL}${endpoint}`;
+  console.log(`🌐 API Call: ${options.method || 'GET'} ${fullUrl}`);
+  
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(fullUrl, {
       ...options,
-      credentials: 'include', // Importante para cookies de sessão
+      credentials: 'include', // ✅ Importante para cookies de sessão CORS
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
         ...options.headers,
       },
     });
 
+    console.log(`📡 Response: ${response.status} ${response.statusText}`);
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: `Request failed with status: ${response.status}` }));
+      const errorData = await response.json().catch(() => ({ 
+        message: `Request failed with status: ${response.status} ${response.statusText}` 
+      }));
+      
+      console.error(`❌ API Error:`, errorData);
       throw new Error(errorData.message || 'An unknown API error occurred.');
     }
     
@@ -35,9 +47,18 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
       return null;
     }
 
-    return response.json();
+    const data = await response.json();
+    console.log(`✅ API Success:`, endpoint);
+    return data;
+    
   } catch (error) {
-    console.error(`API call to ${endpoint} failed:`, error);
+    console.error(`❌ API call to ${endpoint} failed:`, error);
+    
+    // Verificar se é erro de rede/CORS
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error(`Erro de conexão com o servidor. Verifique se o backend está rodando em ${API_BASE_URL}`);
+    }
+    
     // Re-throw the error to be caught by the calling component
     throw error;
   }

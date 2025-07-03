@@ -17,6 +17,7 @@ import UserSalesPerformancePage from './pages/UserSalesPerformancePage';
 import SuppliersPage from './pages/SuppliersPage';
 import AccountsPayablePage from './pages/AccountsPayablePage';
 import ViewQuoteDetailsModal from './components/ViewQuoteDetailsModal'; 
+import { BrowserRouter } from 'react-router-dom';
 import { UserAccessLevel, CompanyInfo, Quote, LoggedInUser } from './types'; 
 import { apiLogin, apiLogout, apiCheckAuth, apiGetCompanyInfo } from './utils';
 import Spinner from './components/common/Spinner';

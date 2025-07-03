@@ -7,7 +7,7 @@
     "allowSyntheticDefaultImports": true,
     "strict": false,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
+    "forceConsistentCasingInFileNames": false,
     "outDir": "./dist",
     "rootDir": "./src",
     "declaration": false,
@@ -15,10 +15,7 @@
     "removeComments": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "allowUnusedLabels": false,
-    "allowUnreachableCode": false,
-    "noEmitOnError": false,
-    "preserveConstEnums": true
+    "noEmitOnError": false
   },
   "include": [
     "src/**/*"

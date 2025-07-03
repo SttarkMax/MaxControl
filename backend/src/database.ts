@@ -2,16 +2,15 @@ import mysql from 'mysql2/promise';
 
 // Configuração do banco de dados
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'maxcontrol',
-  port: parseInt(process.env.DB_PORT || '3306'),
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  host: process.env['DB_HOST'] || 'localhost',
+  user: process.env['DB_USER'] || 'root', 
+  password: process.env['DB_PASSWORD'] || '',
+  database: process.env['DB_NAME'] || 'maxcontrol',
+  port: parseInt(process.env['DB_PORT'] || '3306'),
+  ssl: process.env['NODE_ENV'] === 'production' ? { rejectUnauthorized: false } : undefined,
   connectionLimit: 10,
   acquireTimeout: 60000,
   timeout: 60000,
-  reconnect: true,
   charset: 'utf8mb4'
 };
 
@@ -77,9 +76,6 @@ export const initializeDatabase = async () => {
     const [tables] = await pool.execute('SHOW TABLES');
     console.log(`📊 Tabelas encontradas: ${(tables as any[]).length}`);
 
-    // Aqui você pode adicionar lógica para criar tabelas se necessário
-    // ou executar migrações
-    
     return true;
   } catch (error) {
     console.error('Erro ao inicializar banco de dados:', error);

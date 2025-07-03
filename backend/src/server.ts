@@ -9,7 +9,7 @@ const PORT = process.env['PORT'] || 3001;
 // Configuração de CORS
 const corsOptions = {
   origin: process.env['NODE_ENV'] === 'production' 
-    ? ['https://maxcontrol.f13design.com.br', 'https://maxcontrol.f13design.com.br'] // ⚠️ SUBSTITUIR pelo seu domínio
+    ? ['https://seu-dominio.com', 'https://www.seu-dominio.com'] // ⚠️ SUBSTITUIR pelo seu domínio
     : 'http://localhost:5173',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

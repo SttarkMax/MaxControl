@@ -1,130 +1,90 @@
-import express from 'express';
-import cors from 'cors';
-import session from 'express-session';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import mysql from 'mysql2/promise';
+import { PoolOptions } from 'mysql2';
 
-// Imports das rotas (ajuste conforme sua estrutura)
-// import authRoutes from './routes/auth.js';
-// import productRoutes from './routes/products.js';
-// ... outras rotas
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
-const PORT = process.env.PORT || 3001;
-
-// Configuração de CORS para produção
-const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://f13design.com.br', 'https://f13design.com.br'] // ⚠️ SUBSTITUIR pelo seu domínio
-    : 'http://localhost:5173', // Para desenvolvimento local
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200
+// Configuração do banco de dados
+const dbConfig: PoolOptions = {
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'maxcontrol',
+  port: parseInt(process.env.DB_PORT || '3306'),
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  connectionLimit: 10,
+  acquireTimeout: 60000,
+  timeout: 60000,
+  charset: 'utf8mb4'
 };
 
-app.use(cors(corsOptions));
+// Pool de conexões
+const pool = mysql.createPool(dbConfig);
 
-// Middleware para parsing de JSON
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Trust proxy para Render
-app.set('trust proxy', 1);
-
-// Configuração de sessão
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-super-secret-key-change-this-in-production',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production', // HTTPS em produção
-    httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // Para cross-origin em produção
+// Função para testar conexão
+export const testConnection = async (): Promise<boolean> => {
+  try {
+    const connection = await pool.getConnection();
+    console.log('✅ Conexão com banco de dados estabelecida');
+    connection.release();
+    return true;
+  } catch (error) {
+    console.error('❌ Erro ao conectar com banco de dados:', error);
+    return false;
   }
-}));
+};
 
-// Middleware para logs
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
-// Preflight para todas as rotas
-app.options('*', cors(corsOptions));
-
-// Rotas da API (descomente e ajuste conforme sua estrutura)
-/*
-app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/quotes', quoteRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/accounts-payable', accountsPayableRoutes);
-app.use('/api/suppliers', supplierRoutes);
-app.use('/api/company-info', companyInfoRoutes);
-*/
-
-// Middleware de tratamento de erros
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err.message);
-  console.error('Stack:', err.stack);
-  
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({ message: 'Dados inválidos', details: err.message });
+// Função para executar queries
+export const executeQuery = async (query: string, params?: any[]) => {
+  try {
+    const [results] = await pool.execute(query, params);
+    return results;
+  } catch (error) {
+    console.error('Erro ao executar query:', error);
+    throw error;
   }
+};
+
+// Função para executar transações
+export const executeTransaction = async (queries: Array<{query: string, params?: any[]}>) => {
+  const connection = await pool.getConnection();
   
-  if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({ message: 'Não autorizado' });
+  try {
+    await connection.beginTransaction();
+    
+    const results = [];
+    for (const { query, params } of queries) {
+      const [result] = await connection.execute(query, params);
+      results.push(result);
+    }
+    
+    await connection.commit();
+    return results;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-  
-  res.status(500).json({ 
-    message: 'Erro interno do servidor',
-    ...(process.env.NODE_ENV === 'development' && { details: err.message })
-  });
-});
+};
 
-// Rota 404
-app.use('*', (req, res) => {
-  res.status(404).json({ message: 'Rota não encontrada' });
-});
+// Inicialização do banco
+export const initializeDatabase = async (): Promise<boolean> => {
+  try {
+    const connected = await testConnection();
+    if (!connected) {
+      throw new Error('Não foi possível conectar ao banco de dados');
+    }
 
-// Iniciar servidor
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 URL: http://localhost:${PORT}`);
-});
+    // Verificar se as tabelas existem
+    const [tables] = await pool.execute('SHOW TABLES');
+    console.log(`📊 Tabelas encontradas: ${(tables as any[]).length}`);
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM recebido, fechando servidor...');
-  server.close(() => {
-    console.log('Servidor fechado');
-    process.exit(0);
-  });
-});
+    // Aqui você pode adicionar lógica para criar tabelas se necessário
+    // ou executar migrações
+    
+    return true;
+  } catch (error) {
+    console.error('Erro ao inicializar banco de dados:', error);
+    throw error;
+  }
+};
 
-process.on('SIGINT', () => {
-  console.log('SIGINT recebido, fechando servidor...');
-  server.close(() => {
-    console.log('Servidor fechado');
-    process.exit(0);
-  });
-});
-
-export default app;
+export default pool;

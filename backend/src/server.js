@@ -487,6 +487,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+
 // Debug endpoint
 app.get('/api/debug', (req, res) => {
   res.json({
@@ -515,6 +516,205 @@ app.get('/api/recreate-schema', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ADICIONAR ESTAS ROTAS AO server.js (após as rotas existentes)
+
+// ===== QUOTES ROUTES =====
+app.get('/api/quotes', async (req, res) => {
+  try {
+    // Se não tem tabela quotes ainda, retornar array vazio
+    const [rows] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC').catch(() => [[]]);
+    res.json(rows);
+  } catch (error) {
+    console.log('⚠️ Tabela quotes não existe ainda, retornando array vazio');
+    res.json([]); // Retornar vazio em vez de erro
+  }
+});
+
+app.post('/api/quotes', async (req, res) => {
+  try {
+    const quote = req.body;
+    // Implementar criação de quote
+    res.json({ message: 'Quote criado (funcionalidade em desenvolvimento)' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.execute('SELECT * FROM quotes WHERE id = ?', [id]).catch(() => [[]]);
+    if (rows.length > 0) {
+      res.json(rows[0]);
+    } else {
+      res.status(404).json({ message: 'Quote não encontrado' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== PRODUCTS ROUTES (mais completas) =====
+app.post('/api/products', async (req, res) => {
+  try {
+    const product = req.body;
+    const id = Date.now().toString(); // ID simples para demo
+    
+    await pool.execute(`
+      INSERT INTO products (id, name, description, pricingModel, basePrice, unit, categoryId)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [id, product.name, product.description, product.pricingModel, product.basePrice, product.unit, product.categoryId]);
+    
+    res.json({ id, ...product });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/products/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const product = req.body;
+    
+    await pool.execute(`
+      UPDATE products 
+      SET name = ?, description = ?, pricingModel = ?, basePrice = ?, unit = ?, categoryId = ?
+      WHERE id = ?
+    `, [product.name, product.description, product.pricingModel, product.basePrice, product.unit, product.categoryId, id]);
+    
+    res.json(product);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/products/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM products WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== CATEGORIES ROUTES (mais completas) =====
+app.post('/api/categories', async (req, res) => {
+  try {
+    const category = req.body;
+    const id = Date.now().toString();
+    
+    await pool.execute('INSERT INTO categories (id, name) VALUES (?, ?)', [id, category.name]);
+    res.json({ id, ...category });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const category = req.body;
+    
+    await pool.execute('UPDATE categories SET name = ? WHERE id = ?', [category.name, id]);
+    res.json(category);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM categories WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== CUSTOMERS ROUTES (mais completas) =====
+app.post('/api/customers', async (req, res) => {
+  try {
+    const customer = req.body;
+    const id = Date.now().toString();
+    
+    await pool.execute(`
+      INSERT INTO customers (id, name, documentType, documentNumber, phone, email, address, city, postalCode)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, customer.address, customer.city, customer.postalCode]);
+    
+    res.json({ id, ...customer });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/customers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const customer = req.body;
+    
+    await pool.execute(`
+      UPDATE customers 
+      SET name = ?, documentType = ?, documentNumber = ?, phone = ?, email = ?, address = ?, city = ?, postalCode = ?
+      WHERE id = ?
+    `, [customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, customer.address, customer.city, customer.postalCode, id]);
+    
+    res.json(customer);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/customers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM customers WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== MOCK ROUTES para desenvolvimento =====
+app.get('/api/accounts-payable', (req, res) => {
+  res.json([]); // Array vazio para não dar erro
+});
+
+app.get('/api/suppliers', (req, res) => {
+  res.json([]); // Array vazio para não dar erro
+});
+
+// Log de todas as rotas disponíveis
+console.log('📋 Rotas disponíveis:');
+console.log('   GET  /health');
+console.log('   GET  /api/test-db');
+console.log('   POST /api/auth/login');
+console.log('   GET  /api/auth/me');
+console.log('   POST /api/auth/logout');
+console.log('   GET  /api/company-info');
+console.log('   POST /api/company-info');
+console.log('   GET  /api/products');
+console.log('   POST /api/products');
+console.log('   PUT  /api/products/:id');
+console.log('   DELETE /api/products/:id');
+console.log('   GET  /api/categories');
+console.log('   POST /api/categories');
+console.log('   PUT  /api/categories/:id');
+console.log('   DELETE /api/categories/:id');
+console.log('   GET  /api/customers');
+console.log('   POST /api/customers');
+console.log('   PUT  /api/customers/:id');
+console.log('   DELETE /api/customers/:id');
+console.log('   GET  /api/quotes');
+console.log('   POST /api/quotes');
+console.log('   GET  /api/quotes/:id');
+console.log('   GET  /api/users');
+console.log('   GET  /api/accounts-payable');
+console.log('   GET  /api/suppliers');
+
 
 // ============= MIDDLEWARE =============
 

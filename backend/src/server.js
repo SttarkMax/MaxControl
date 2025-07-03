@@ -6,14 +6,14 @@ const mysql = require('mysql2/promise');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Configuração do banco de dados
+// Configuração do banco de dados - SSL DESABILITADO
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'maxcontrol',
   port: parseInt(process.env.DB_PORT || '3306'),
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+  ssl: false, // ✅ DESABILITAR SSL
   connectionLimit: 10,
   acquireTimeout: 60000,
   timeout: 60000,
@@ -39,7 +39,7 @@ const testConnection = async () => {
 // Configuração de CORS
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://maxcontrol.f13design.com.br', 'https://maxcontrol.f13design.com.br'] // ⚠️ SUBSTITUIR pelo seu domínio
+    ? ['https://seu-dominio.com', 'https://www.seu-dominio.com'] // ⚠️ SUBSTITUIR pelo seu domínio
     : 'http://localhost:5173',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -84,18 +84,42 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Endpoint de teste de banco
+// Endpoint de teste de banco - COM MAIS DETALHES DE DEBUG
 app.get('/api/test-db', async (req, res) => {
   try {
+    console.log('🔍 Tentando conectar com configuração:', {
+      host: dbConfig.host,
+      user: dbConfig.user,
+      database: dbConfig.database,
+      port: dbConfig.port,
+      ssl: dbConfig.ssl
+    });
+    
     const connected = await testConnection();
     res.json({ 
       database: connected ? 'connected' : 'disconnected',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      config: {
+        host: dbConfig.host,
+        user: dbConfig.user,
+        database: dbConfig.database,
+        port: dbConfig.port,
+        ssl: dbConfig.ssl
+      }
     });
   } catch (error) {
+    console.error('❌ Erro detalhado:', error);
     res.status(500).json({ 
       error: 'Database connection failed',
-      message: error.message
+      message: error.message,
+      code: error.code || 'UNKNOWN',
+      config: {
+        host: dbConfig.host,
+        user: dbConfig.user,
+        database: dbConfig.database,
+        port: dbConfig.port,
+        ssl: dbConfig.ssl
+      }
     });
   }
 });
@@ -123,6 +147,14 @@ app.use('*', (req, res) => {
 const startServer = async () => {
   try {
     // Testar conexão com banco
+    console.log('🔍 Configuração do banco:', {
+      host: dbConfig.host,
+      user: dbConfig.user,
+      database: dbConfig.database,
+      port: dbConfig.port,
+      ssl: dbConfig.ssl
+    });
+    
     await testConnection();
     console.log('✅ Banco de dados conectado');
     
@@ -152,7 +184,14 @@ const startServer = async () => {
 
   } catch (error) {
     console.error('❌ Erro ao iniciar servidor:', error);
-    process.exit(1);
+    console.log('ℹ️ Servidor continuará rodando mesmo sem banco...');
+    
+    // Iniciar servidor mesmo sem banco
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Servidor rodando na porta ${PORT} (sem banco)`);
+      console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔗 Health: http://localhost:${PORT}/health`);
+    });
   }
 };
 

@@ -13,7 +13,7 @@ const dbConfig = {
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'maxcontrol',
   port: parseInt(process.env.DB_PORT || '3306'),
-  ssl: false, // ✅ SSL desabilitado para cPanel
+  ssl: false,
   connectionLimit: 10,
   acquireTimeout: 60000,
   timeout: 60000,
@@ -32,7 +32,6 @@ const testConnection = async () => {
     const connection = await pool.getConnection();
     console.log('✅ MySQL conectado:', dbConfig.host);
     
-    // Testar query simples
     const [rows] = await connection.execute('SELECT 1 as test');
     console.log('✅ Query teste executada:', rows[0]);
     
@@ -48,60 +47,93 @@ const testConnection = async () => {
   }
 };
 
-// CORS configuração completa
+// ✅ CONFIGURAÇÃO CORS CORRIGIDA
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
+      // Desenvolvimento
       'http://localhost:5173',
       'http://localhost:3000', 
       'https://localhost:5173',
       'https://localhost:3000',
-      'https://maxcontrol.f13design.com.br/',           // ⚠️ SUBSTITUIR pelo seu domínio real
-      'https://www.maxcontrol.f13design.com.br/',       // ⚠️ SUBSTITUIR pelo seu domínio real
-      'http://seu-dominio.com',
-      'http://www.seu-dominio.com'
+      
+      // ✅ PRODUÇÃO - Corrigido (remover barra final)
+      'https://maxcontrol.f13design.com.br',
+      'http://maxcontrol.f13design.com.br',
+      
+      // Versões com www (se aplicável)
+      'https://www.maxcontrol.f13design.com.br',
+      'http://www.maxcontrol.f13design.com.br'
     ];
     
-    // Permitir requests sem origin (mobile, postman)
-    if (!origin) return callback(null, true);
+    console.log('🔍 CORS Check - Origin:', origin);
+    
+    // Permitir requests sem origin (mobile, postman, etc.)
+    if (!origin) {
+      console.log('✅ CORS: Request sem origin permitido');
+      return callback(null, true);
+    }
     
     if (allowedOrigins.includes(origin)) {
+      console.log('✅ CORS: Origin permitido:', origin);
       callback(null, true);
     } else {
-      console.log('❌ CORS bloqueado para:', origin);
-      callback(null, true); // TEMPORÁRIO: permitir todas para debug
+      console.log('❌ CORS: Origin bloqueado:', origin);
+      console.log('📋 Origins permitidos:', allowedOrigins);
+      // EM PRODUÇÃO: Bloquear origins não autorizados
+      // callback(new Error('Not allowed by CORS'));
+      
+      // TEMPORÁRIO para debug: permitir todos
+      console.log('⚠️ CORS: Permitindo temporariamente para debug');
+      callback(null, true);
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'Accept', 
+    'Origin',
+    'Cache-Control',
+    'Pragma'
+  ],
   optionsSuccessStatus: 200
 };
 
+// Aplicar CORS antes de outros middlewares
 app.use(cors(corsOptions));
 
-// Middleware básico
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.set('trust proxy', 1);
-
-// Headers CORS adicionais
+// Middleware para logs detalhados
 app.use((req, res, next) => {
   const origin = req.headers.origin;
+  console.log(`🌐 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
+  console.log('📨 Headers:', {
+    origin: req.headers.origin,
+    host: req.headers.host,
+    userAgent: req.headers['user-agent']?.substring(0, 50) + '...'
+  });
+  
+  // Headers CORS manuais como fallback
   if (origin) {
     res.header('Access-Control-Allow-Origin', origin);
   }
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
-  
-  console.log(`🌐 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,Pragma');
   
   if (req.method === 'OPTIONS') {
+    console.log('✅ Respondendo OPTIONS preflight');
     return res.sendStatus(200);
   }
   next();
 });
+
+// Middleware básico
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.set('trust proxy', 1);
 
 // Configuração de sessão
 app.use(session({
@@ -109,10 +141,10 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // HTTPS em produção
     httpOnly: true,
-    maxAge: 1000 * 60 * 60 * 24 * 7,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // 'none' para CORS cross-origin
   }
 }));
 
@@ -487,6 +519,25 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// ===== QUOTES ROUTES =====
+app.get('/api/quotes', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC').catch(() => [[]]);
+    res.json(rows);
+  } catch (error) {
+    console.log('⚠️ Tabela quotes não existe ainda, retornando array vazio');
+    res.json([]);
+  }
+});
+
+// ===== MOCK ROUTES para desenvolvimento =====
+app.get('/api/accounts-payable', (req, res) => {
+  res.json([]);
+});
+
+app.get('/api/suppliers', (req, res) => {
+  res.json([]);
+});
 
 // Debug endpoint
 app.get('/api/debug', (req, res) => {
@@ -506,215 +557,6 @@ app.get('/api/debug', (req, res) => {
     }
   });
 });
-
-// Recreate schema
-app.get('/api/recreate-schema', async (req, res) => {
-  try {
-    await createAllTables();
-    res.json({ message: 'Schema MySQL recriado com sucesso' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ADICIONAR ESTAS ROTAS AO server.js (após as rotas existentes)
-
-// ===== QUOTES ROUTES =====
-app.get('/api/quotes', async (req, res) => {
-  try {
-    // Se não tem tabela quotes ainda, retornar array vazio
-    const [rows] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC').catch(() => [[]]);
-    res.json(rows);
-  } catch (error) {
-    console.log('⚠️ Tabela quotes não existe ainda, retornando array vazio');
-    res.json([]); // Retornar vazio em vez de erro
-  }
-});
-
-app.post('/api/quotes', async (req, res) => {
-  try {
-    const quote = req.body;
-    // Implementar criação de quote
-    res.json({ message: 'Quote criado (funcionalidade em desenvolvimento)' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [rows] = await pool.execute('SELECT * FROM quotes WHERE id = ?', [id]).catch(() => [[]]);
-    if (rows.length > 0) {
-      res.json(rows[0]);
-    } else {
-      res.status(404).json({ message: 'Quote não encontrado' });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== PRODUCTS ROUTES (mais completas) =====
-app.post('/api/products', async (req, res) => {
-  try {
-    const product = req.body;
-    const id = Date.now().toString(); // ID simples para demo
-    
-    await pool.execute(`
-      INSERT INTO products (id, name, description, pricingModel, basePrice, unit, categoryId)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [id, product.name, product.description, product.pricingModel, product.basePrice, product.unit, product.categoryId]);
-    
-    res.json({ id, ...product });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/products/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const product = req.body;
-    
-    await pool.execute(`
-      UPDATE products 
-      SET name = ?, description = ?, pricingModel = ?, basePrice = ?, unit = ?, categoryId = ?
-      WHERE id = ?
-    `, [product.name, product.description, product.pricingModel, product.basePrice, product.unit, product.categoryId, id]);
-    
-    res.json(product);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/products/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM products WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== CATEGORIES ROUTES (mais completas) =====
-app.post('/api/categories', async (req, res) => {
-  try {
-    const category = req.body;
-    const id = Date.now().toString();
-    
-    await pool.execute('INSERT INTO categories (id, name) VALUES (?, ?)', [id, category.name]);
-    res.json({ id, ...category });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/categories/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const category = req.body;
-    
-    await pool.execute('UPDATE categories SET name = ? WHERE id = ?', [category.name, id]);
-    res.json(category);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/categories/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM categories WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== CUSTOMERS ROUTES (mais completas) =====
-app.post('/api/customers', async (req, res) => {
-  try {
-    const customer = req.body;
-    const id = Date.now().toString();
-    
-    await pool.execute(`
-      INSERT INTO customers (id, name, documentType, documentNumber, phone, email, address, city, postalCode)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, customer.address, customer.city, customer.postalCode]);
-    
-    res.json({ id, ...customer });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/customers/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const customer = req.body;
-    
-    await pool.execute(`
-      UPDATE customers 
-      SET name = ?, documentType = ?, documentNumber = ?, phone = ?, email = ?, address = ?, city = ?, postalCode = ?
-      WHERE id = ?
-    `, [customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, customer.address, customer.city, customer.postalCode, id]);
-    
-    res.json(customer);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/customers/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM customers WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== MOCK ROUTES para desenvolvimento =====
-app.get('/api/accounts-payable', (req, res) => {
-  res.json([]); // Array vazio para não dar erro
-});
-
-app.get('/api/suppliers', (req, res) => {
-  res.json([]); // Array vazio para não dar erro
-});
-
-// Log de todas as rotas disponíveis
-console.log('📋 Rotas disponíveis:');
-console.log('   GET  /health');
-console.log('   GET  /api/test-db');
-console.log('   POST /api/auth/login');
-console.log('   GET  /api/auth/me');
-console.log('   POST /api/auth/logout');
-console.log('   GET  /api/company-info');
-console.log('   POST /api/company-info');
-console.log('   GET  /api/products');
-console.log('   POST /api/products');
-console.log('   PUT  /api/products/:id');
-console.log('   DELETE /api/products/:id');
-console.log('   GET  /api/categories');
-console.log('   POST /api/categories');
-console.log('   PUT  /api/categories/:id');
-console.log('   DELETE /api/categories/:id');
-console.log('   GET  /api/customers');
-console.log('   POST /api/customers');
-console.log('   PUT  /api/customers/:id');
-console.log('   DELETE /api/customers/:id');
-console.log('   GET  /api/quotes');
-console.log('   POST /api/quotes');
-console.log('   GET  /api/quotes/:id');
-console.log('   GET  /api/users');
-console.log('   GET  /api/accounts-payable');
-console.log('   GET  /api/suppliers');
-
 
 // ============= MIDDLEWARE =============
 

@@ -522,11 +522,337 @@ app.get('/api/users', async (req, res) => {
 // ===== QUOTES ROUTES =====
 app.get('/api/quotes', async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC').catch(() => [[]]);
-    res.json(rows);
+    console.log('📋 Buscando quotes...');
+    const [rows] = await pool.execute(`
+      SELECT q.*, 
+             c.name as customerName,
+             GROUP_CONCAT(
+               JSON_OBJECT(
+                 'id', qi.id,
+                 'productId', qi.productId,
+                 'productName', qi.productName,
+                 'quantity', qi.quantity,
+                 'unitPrice', qi.unitPrice,
+                 'totalPrice', qi.totalPrice,
+                 'pricingModel', qi.pricingModel,
+                 'width', qi.width,
+                 'height', qi.height,
+                 'itemCountForAreaCalc', qi.itemCountForAreaCalc
+               )
+             ) as items_json
+      FROM quotes q
+      LEFT JOIN customers c ON q.customerId = c.id
+      LEFT JOIN quote_items qi ON q.id = qi.quoteId
+      GROUP BY q.id
+      ORDER BY q.createdAt DESC
+    `).catch(() => [[]]);
+
+    // Se não existir tabela, retornar array vazio
+    if (!rows || rows.length === 0) {
+      console.log('⚠️ Nenhum quote encontrado ou tabela não existe');
+      return res.json([]);
+    }
+
+    // Processar os resultados
+    const quotes = rows.map(row => {
+      let items = [];
+      if (row.items_json) {
+        try {
+          const itemsStr = row.items_json.replace(/\]\[/g, ',');
+          items = JSON.parse(`[${itemsStr}]`);
+        } catch (e) {
+          console.error('Erro ao parsear items:', e);
+          items = [];
+        }
+      }
+
+      // Snapshot da empresa (mock para compatibilidade)
+      const companyInfoSnapshot = {
+        name: 'MaxControl Demo',
+        address: 'Rua Demo, 123',
+        phone: '(11) 99999-9999',
+        email: 'demo@maxcontrol.com'
+      };
+
+      return {
+        id: row.id,
+        quoteNumber: row.quoteNumber,
+        customerId: row.customerId,
+        clientName: row.clientName,
+        clientContact: row.clientContact,
+        items: items,
+        subtotal: parseFloat(row.subtotal) || 0,
+        discountType: row.discountType || 'none',
+        discountValue: parseFloat(row.discountValue) || 0,
+        discountAmountCalculated: parseFloat(row.discountAmountCalculated) || 0,
+        subtotalAfterDiscount: parseFloat(row.subtotalAfterDiscount) || 0,
+        totalCash: parseFloat(row.totalCash) || 0,
+        totalCard: parseFloat(row.totalCard) || 0,
+        downPaymentApplied: parseFloat(row.downPaymentApplied) || 0,
+        selectedPaymentMethod: row.selectedPaymentMethod,
+        paymentDate: row.paymentDate,
+        deliveryDeadline: row.deliveryDeadline,
+        status: row.status || 'draft',
+        notes: row.notes,
+        salespersonUsername: row.salespersonUsername,
+        salespersonFullName: row.salespersonFullName,
+        createdAt: row.createdAt,
+        companyInfoSnapshot: companyInfoSnapshot
+      };
+    });
+
+    console.log(`✅ Retornando ${quotes.length} quotes`);
+    res.json(quotes);
   } catch (error) {
-    console.log('⚠️ Tabela quotes não existe ainda, retornando array vazio');
+    console.error('❌ Erro ao buscar quotes:', error);
+    // Em caso de erro, retornar array vazio para não quebrar o frontend
     res.json([]);
+  }
+});
+
+app.get('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('📋 Buscando quote por ID:', id);
+    
+    const [rows] = await pool.execute(`
+      SELECT q.*, 
+             c.name as customerName,
+             GROUP_CONCAT(
+               JSON_OBJECT(
+                 'id', qi.id,
+                 'productId', qi.productId,
+                 'productName', qi.productName,
+                 'quantity', qi.quantity,
+                 'unitPrice', qi.unitPrice,
+                 'totalPrice', qi.totalPrice,
+                 'pricingModel', qi.pricingModel,
+                 'width', qi.width,
+                 'height', qi.height,
+                 'itemCountForAreaCalc', qi.itemCountForAreaCalc
+               )
+             ) as items_json
+      FROM quotes q
+      LEFT JOIN customers c ON q.customerId = c.id
+      LEFT JOIN quote_items qi ON q.id = qi.quoteId
+      WHERE q.id = ?
+      GROUP BY q.id
+    `, [id]).catch(() => [[]]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Quote não encontrado' });
+    }
+
+    const row = rows[0];
+    let items = [];
+    if (row.items_json) {
+      try {
+        const itemsStr = row.items_json.replace(/\]\[/g, ',');
+        items = JSON.parse(`[${itemsStr}]`);
+      } catch (e) {
+        console.error('Erro ao parsear items:', e);
+        items = [];
+      }
+    }
+
+    const companyInfoSnapshot = {
+      name: 'MaxControl Demo',
+      address: 'Rua Demo, 123',
+      phone: '(11) 99999-9999',
+      email: 'demo@maxcontrol.com'
+    };
+
+    const quote = {
+      id: row.id,
+      quoteNumber: row.quoteNumber,
+      customerId: row.customerId,
+      clientName: row.clientName,
+      clientContact: row.clientContact,
+      items: items,
+      subtotal: parseFloat(row.subtotal) || 0,
+      discountType: row.discountType || 'none',
+      discountValue: parseFloat(row.discountValue) || 0,
+      discountAmountCalculated: parseFloat(row.discountAmountCalculated) || 0,
+      subtotalAfterDiscount: parseFloat(row.subtotalAfterDiscount) || 0,
+      totalCash: parseFloat(row.totalCash) || 0,
+      totalCard: parseFloat(row.totalCard) || 0,
+      downPaymentApplied: parseFloat(row.downPaymentApplied) || 0,
+      selectedPaymentMethod: row.selectedPaymentMethod,
+      paymentDate: row.paymentDate,
+      deliveryDeadline: row.deliveryDeadline,
+      status: row.status || 'draft',
+      notes: row.notes,
+      salespersonUsername: row.salespersonUsername,
+      salespersonFullName: row.salespersonFullName,
+      createdAt: row.createdAt,
+      companyInfoSnapshot: companyInfoSnapshot
+    };
+
+    res.json(quote);
+  } catch (error) {
+    console.error('❌ Erro ao buscar quote:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/quotes', async (req, res) => {
+  try {
+    const quote = req.body;
+    console.log('💾 Criando novo quote...');
+
+    // Gerar ID e número do quote
+    const quoteId = Date.now().toString();
+    const quoteNumber = `ORC-${Date.now()}`;
+
+    // Inserir quote principal
+    await pool.execute(`
+      INSERT INTO quotes (
+        id, quoteNumber, customerId, clientName, clientContact,
+        subtotal, discountType, discountValue, discountAmountCalculated,
+        subtotalAfterDiscount, totalCash, totalCard, downPaymentApplied,
+        selectedPaymentMethod, paymentDate, deliveryDeadline, status,
+        notes, salespersonUsername, salespersonFullName
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      quoteId,
+      quoteNumber,
+      quote.customerId || null,
+      quote.clientName,
+      quote.clientContact || null,
+      quote.subtotal || 0,
+      quote.discountType || 'none',
+      quote.discountValue || 0,
+      quote.discountAmountCalculated || 0,
+      quote.subtotalAfterDiscount || 0,
+      quote.totalCash || 0,
+      quote.totalCard || 0,
+      quote.downPaymentApplied || 0,
+      quote.selectedPaymentMethod || null,
+      quote.paymentDate || null,
+      quote.deliveryDeadline || null,
+      quote.status || 'draft',
+      quote.notes || null,
+      quote.salespersonUsername || 'admin',
+      quote.salespersonFullName || 'Administrador'
+    ]);
+
+    // Inserir items se existirem
+    if (quote.items && quote.items.length > 0) {
+      for (const item of quote.items) {
+        const itemId = `${quoteId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        await pool.execute(`
+          INSERT INTO quote_items (
+            id, quoteId, productId, productName, quantity, unitPrice,
+            totalPrice, pricingModel, width, height, itemCountForAreaCalc
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          itemId,
+          quoteId,
+          item.productId,
+          item.productName,
+          item.quantity || 0,
+          item.unitPrice || 0,
+          item.totalPrice || 0,
+          item.pricingModel || 'unidade',
+          item.width || null,
+          item.height || null,
+          item.itemCountForAreaCalc || null
+        ]);
+      }
+    }
+
+    console.log('✅ Quote criado:', quoteNumber);
+    res.json({ id: quoteId, quoteNumber, ...quote });
+  } catch (error) {
+    console.error('❌ Erro ao criar quote:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const quote = req.body;
+    console.log('✏️ Atualizando quote:', id);
+
+    // Atualizar quote principal
+    await pool.execute(`
+      UPDATE quotes SET
+        clientName = ?, clientContact = ?, subtotal = ?, discountType = ?,
+        discountValue = ?, discountAmountCalculated = ?, subtotalAfterDiscount = ?,
+        totalCash = ?, totalCard = ?, downPaymentApplied = ?, selectedPaymentMethod = ?,
+        paymentDate = ?, deliveryDeadline = ?, status = ?, notes = ?
+      WHERE id = ?
+    `, [
+      quote.clientName,
+      quote.clientContact || null,
+      quote.subtotal || 0,
+      quote.discountType || 'none',
+      quote.discountValue || 0,
+      quote.discountAmountCalculated || 0,
+      quote.subtotalAfterDiscount || 0,
+      quote.totalCash || 0,
+      quote.totalCard || 0,
+      quote.downPaymentApplied || 0,
+      quote.selectedPaymentMethod || null,
+      quote.paymentDate || null,
+      quote.deliveryDeadline || null,
+      quote.status || 'draft',
+      quote.notes || null,
+      id
+    ]);
+
+    // Remover items antigos e inserir novos
+    await pool.execute('DELETE FROM quote_items WHERE quoteId = ?', [id]);
+    
+    if (quote.items && quote.items.length > 0) {
+      for (const item of quote.items) {
+        const itemId = `${id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        await pool.execute(`
+          INSERT INTO quote_items (
+            id, quoteId, productId, productName, quantity, unitPrice,
+            totalPrice, pricingModel, width, height, itemCountForAreaCalc
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          itemId,
+          id,
+          item.productId,
+          item.productName,
+          item.quantity || 0,
+          item.unitPrice || 0,
+          item.totalPrice || 0,
+          item.pricingModel || 'unidade',
+          item.width || null,
+          item.height || null,
+          item.itemCountForAreaCalc || null
+        ]);
+      }
+    }
+
+    console.log('✅ Quote atualizado:', id);
+    res.json(quote);
+  } catch (error) {
+    console.error('❌ Erro ao atualizar quote:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('🗑️ Deletando quote:', id);
+
+    // Deletar items primeiro (por causa da foreign key)
+    await pool.execute('DELETE FROM quote_items WHERE quoteId = ?', [id]);
+    
+    // Deletar quote
+    await pool.execute('DELETE FROM quotes WHERE id = ?', [id]);
+
+    console.log('✅ Quote deletado:', id);
+    res.status(204).send();
+  } catch (error) {
+    console.error('❌ Erro ao deletar quote:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -373,7 +373,7 @@ const insertInitialData = async () => {
 
 // ============= CONFIGURAÇÃO DAS ROTAS =============
 
-// Configurar e usar as rotas
+// Configurar e usar as rotas CORRETAMENTE
 const routes = setupRoutes(pool);
 app.use('/api', routes);
 

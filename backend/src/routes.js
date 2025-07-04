@@ -147,21 +147,21 @@ router.get('/company-info', async (req, res) => {
 
 router.post('/company-info', async (req, res) => {
   try {
-    const { name, address, phone, email, cnpj, instagram, website } = req.body;
+    const { name, address, phone, email, cnpj, instagram, website, logoUrlDarkBg, logoUrlLightBg } = req.body;
     
     const [existing] = await pool.execute('SELECT id FROM company_info LIMIT 1');
     
     if (existing.length > 0) {
       await pool.execute(`
         UPDATE company_info 
-        SET name = ?, address = ?, phone = ?, email = ?, cnpj = ?, instagram = ?, website = ?
+        SET name = ?, address = ?, phone = ?, email = ?, cnpj = ?, instagram = ?, website = ?, logoUrlDarkBg = ?, logoUrlLightBg = ?
         WHERE id = ?
-      `, [name, address, phone, email, cnpj, instagram, website, existing[0].id]);
+      `, [name, address, phone, email, cnpj, instagram, website, logoUrlDarkBg, logoUrlLightBg, existing[0].id]);
     } else {
       await pool.execute(`
-        INSERT INTO company_info (name, address, phone, email, cnpj, instagram, website)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [name, address, phone, email, cnpj, instagram, website]);
+        INSERT INTO company_info (name, address, phone, email, cnpj, instagram, website, logoUrlDarkBg, logoUrlLightBg)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [name, address, phone, email, cnpj, instagram, website, logoUrlDarkBg, logoUrlLightBg]);
     }
     
     res.json({ message: 'Informações salvas com sucesso' });
@@ -193,6 +193,7 @@ router.post('/products', async (req, res) => {
     
     res.json({ id, ...product });
   } catch (error) {
+    console.error('❌ Erro ao criar produto:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -210,6 +211,7 @@ router.put('/products/:id', async (req, res) => {
     
     res.json(product);
   } catch (error) {
+    console.error('❌ Erro ao atualizar produto:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -243,6 +245,7 @@ router.post('/categories', async (req, res) => {
     await pool.execute('INSERT INTO categories (id, name) VALUES (?, ?)', [id, category.name]);
     res.json({ id, ...category });
   } catch (error) {
+    console.error('❌ Erro ao criar categoria:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -255,6 +258,7 @@ router.put('/categories/:id', async (req, res) => {
     await pool.execute('UPDATE categories SET name = ? WHERE id = ?', [category.name, id]);
     res.json(category);
   } catch (error) {
+    console.error('❌ Erro ao atualizar categoria:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -313,6 +317,7 @@ router.post('/customers', async (req, res) => {
     
     res.json({ id, ...customer });
   } catch (error) {
+    console.error('❌ Erro ao criar cliente:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -456,6 +461,7 @@ router.post('/quotes', async (req, res) => {
     
     res.json(responseQuote);
   } catch (error) {
+    console.error('❌ Erro ao criar orçamento:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -538,6 +544,7 @@ router.post('/users', async (req, res) => {
     
     res.json({ id, ...user });
   } catch (error) {
+    console.error('❌ Erro ao criar usuário:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -597,6 +604,7 @@ router.post('/accounts-payable', async (req, res) => {
     
     res.json({ id, ...entry, createdAt: new Date().toISOString() });
   } catch (error) {
+    console.error('❌ Erro ao criar conta a pagar:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -626,6 +634,27 @@ router.delete('/accounts-payable/:id', async (req, res) => {
   }
 });
 
+// Toggle paid status
+router.post('/accounts-payable/:id/toggle-paid', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get current status
+    const [current] = await pool.execute('SELECT isPaid FROM accounts_payable WHERE id = ?', [id]);
+    if (current.length === 0) {
+      return res.status(404).json({ error: 'Conta não encontrada' });
+    }
+    
+    const newStatus = !current[0].isPaid;
+    await pool.execute('UPDATE accounts_payable SET isPaid = ? WHERE id = ?', [newStatus, id]);
+    
+    const [updated] = await pool.execute('SELECT * FROM accounts_payable WHERE id = ?', [id]);
+    res.json(updated[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============= SUPPLIERS ROUTES =============
 
 router.get('/suppliers', async (req, res) => {
@@ -649,6 +678,7 @@ router.post('/suppliers', async (req, res) => {
     
     res.json({ id, ...supplier });
   } catch (error) {
+    console.error('❌ Erro ao criar fornecedor:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -701,6 +731,7 @@ router.post('/suppliers/debts', async (req, res) => {
     
     res.json({ id, ...debt });
   } catch (error) {
+    console.error('❌ Erro ao criar dívida:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -738,4 +769,90 @@ router.post('/suppliers/supplier-credits', async (req, res) => {
     
     res.json({ id, ...credit });
   } catch (error) {
+    console.error('❌ Erro ao criar crédito:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/suppliers/supplier-credits/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM supplier_credits WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============= ACCOUNTS PAYABLE SERIES ROUTES =============
+
+router.post('/accounts-payable/series', async (req, res) => {
+  try {
+    const { baseEntry, installments, frequency } = req.body;
+    const seriesId = generateId();
+    const createdEntries = [];
+    
+    const installmentAmount = baseEntry.amount / installments;
+    
+    for (let i = 0; i < installments; i++) {
+      const entryId = generateId();
+      let dueDate = new Date(baseEntry.dueDate + 'T00:00:00');
+      
+      if (frequency === 'weekly') {
+        dueDate.setDate(dueDate.getDate() + (i * 7));
+      } else if (frequency === 'monthly') {
+        dueDate.setMonth(dueDate.getMonth() + i);
+      }
+      
+      const dueDateString = dueDate.toISOString().split('T')[0];
+      
+      await pool.execute(`
+        INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        entryId, 
+        `${baseEntry.name} (${i + 1}/${installments})`,
+        installmentAmount,
+        dueDateString,
+        baseEntry.isPaid || false,
+        baseEntry.notes,
+        seriesId,
+        installments,
+        i + 1,
+        new Date().toISOString()
+      ]);
+      
+      createdEntries.push({
+        id: entryId,
+        name: `${baseEntry.name} (${i + 1}/${installments})`,
+        amount: installmentAmount,
+        dueDate: dueDateString,
+        isPaid: baseEntry.isPaid || false,
+        notes: baseEntry.notes,
+        seriesId,
+        totalInstallmentsInSeries: installments,
+        installmentNumberOfSeries: i + 1,
+        createdAt: new Date().toISOString()
+      });
+    }
+    
+    res.json(createdEntries);
+  } catch (error) {
+    console.error('❌ Erro ao criar série de contas:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/accounts-payable/series/:seriesId', async (req, res) => {
+  try {
+    const { seriesId } = req.params;
+    await pool.execute('DELETE FROM accounts_payable WHERE seriesId = ?', [seriesId]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============= EXPORTAÇÃO =============
+
+module.exports = { setupRoutes };

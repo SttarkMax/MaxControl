@@ -23,14 +23,18 @@ const dbConfig = {
   bigNumberStrings: true
 };
 
+// Pool de conexões MySQL
 const pool = mysql.createPool(dbConfig);
 
+// Função para testar conexão
 const testConnection = async () => {
   try {
     const connection = await pool.getConnection();
     console.log('✅ MySQL conectado:', dbConfig.host);
+    
     const [rows] = await connection.execute('SELECT 1 as test');
     console.log('✅ Query teste executada:', rows[0]);
+    
     connection.release();
     return true;
   } catch (error) {
@@ -53,8 +57,6 @@ const corsOptions = {
       'https://localhost:3000',
       'https://maxcontrol.f13design.com.br',
       'https://www.maxcontrol.f13design.com.br',
-      'http://seu-dominio.com',
-      'http://www.seu-dominio.com'
     ];
     
     if (!origin) return callback(null, true);
@@ -63,7 +65,7 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.log('❌ CORS bloqueado para:', origin);
-      callback(null, true); // Permitir para debug
+      callback(null, true); // TEMPORÁRIO: permitir todas para debug
     }
   },
   credentials: true,
@@ -74,11 +76,12 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Middleware
+// Middleware básico
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.set('trust proxy', 1);
 
+// Headers CORS adicionais
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
@@ -96,7 +99,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Session
+// Configuração de sessão
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-super-secret-key-change-this-in-production',
   resave: false,
@@ -109,7 +112,7 @@ app.use(session({
   }
 }));
 
-// Schema MySQL completo
+// Schema MySQL completo com todas as tabelas
 const createAllTables = async () => {
   try {
     console.log('🔧 Criando schema MySQL completo...');
@@ -247,7 +250,23 @@ const createAllTables = async () => {
       )
     `);
 
-    // Suppliers
+    // ===== NOVAS TABELAS PARA CONTAS A PAGAR =====
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS accounts_payable (
+        id VARCHAR(36) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        dueDate DATE NOT NULL,
+        isPaid BOOLEAN DEFAULT FALSE,
+        notes TEXT,
+        seriesId VARCHAR(36),
+        totalInstallmentsInSeries INT,
+        installmentNumberOfSeries INT,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // ===== NOVAS TABELAS PARA FORNECEDORES =====
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS suppliers (
         id VARCHAR(36) PRIMARY KEY,
@@ -261,9 +280,8 @@ const createAllTables = async () => {
       )
     `);
 
-    // Debts
     await pool.execute(`
-      CREATE TABLE IF NOT EXISTS debts (
+      CREATE TABLE IF NOT EXISTS supplier_debts (
         id VARCHAR(36) PRIMARY KEY,
         supplierId VARCHAR(36) NOT NULL,
         description TEXT,
@@ -274,7 +292,6 @@ const createAllTables = async () => {
       )
     `);
 
-    // Supplier Credits
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS supplier_credits (
         id VARCHAR(36) PRIMARY KEY,
@@ -284,22 +301,6 @@ const createAllTables = async () => {
         description TEXT,
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (supplierId) REFERENCES suppliers(id) ON DELETE CASCADE
-      )
-    `);
-
-    // Accounts Payable
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS accounts_payable (
-        id VARCHAR(36) PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        amount DECIMAL(10,2) NOT NULL,
-        dueDate DATE NOT NULL,
-        isPaid BOOLEAN DEFAULT FALSE,
-        notes TEXT,
-        seriesId VARCHAR(36),
-        totalInstallmentsInSeries INT,
-        installmentNumberOfSeries INT,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -354,7 +355,7 @@ const insertInitialData = async () => {
   }
 };
 
-// Função para gerar UUID simples
+// Função para gerar IDs únicos
 const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9);
 
 // ============= ROTAS DA API =============
@@ -596,15 +597,18 @@ app.delete('/api/categories/:id', async (req, res) => {
 // ===== CUSTOMERS ROUTES =====
 app.get('/api/customers', async (req, res) => {
   try {
-    const [customers] = await pool.execute('SELECT * FROM customers ORDER BY name');
+    const [rows] = await pool.execute('SELECT * FROM customers ORDER BY name');
     
     // Buscar down payments para cada cliente
-    for (let customer of customers) {
-      const [downPayments] = await pool.execute('SELECT * FROM customer_down_payments WHERE customerId = ? ORDER BY date DESC', [customer.id]);
+    for (let customer of rows) {
+      const [downPayments] = await pool.execute(
+        'SELECT * FROM customer_down_payments WHERE customerId = ? ORDER BY date DESC',
+        [customer.id]
+      );
       customer.downPayments = downPayments;
     }
     
-    res.json(customers);
+    res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -620,7 +624,7 @@ app.post('/api/customers', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [id, customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, customer.address, customer.city, customer.postalCode]);
     
-    // Inserir down payments se existirem
+    // Salvar down payments se existirem
     if (customer.downPayments && customer.downPayments.length > 0) {
       for (let dp of customer.downPayments) {
         const dpId = generateId();
@@ -648,12 +652,12 @@ app.put('/api/customers/:id', async (req, res) => {
       WHERE id = ?
     `, [customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, customer.address, customer.city, customer.postalCode, id]);
     
-    // Atualizar down payments - remover existentes e inserir novos
+    // Atualizar down payments (remover os antigos e inserir os novos)
     await pool.execute('DELETE FROM customer_down_payments WHERE customerId = ?', [id]);
     
     if (customer.downPayments && customer.downPayments.length > 0) {
       for (let dp of customer.downPayments) {
-        const dpId = dp.id || generateId();
+        const dpId = generateId();
         await pool.execute(`
           INSERT INTO customer_down_payments (id, customerId, amount, date, description)
           VALUES (?, ?, ?, ?, ?)
@@ -670,6 +674,7 @@ app.put('/api/customers/:id', async (req, res) => {
 app.delete('/api/customers/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    // O CASCADE na FK já vai deletar os down payments
     await pool.execute('DELETE FROM customers WHERE id = ?', [id]);
     res.status(204).send();
   } catch (error) {
@@ -680,19 +685,47 @@ app.delete('/api/customers/:id', async (req, res) => {
 // ===== QUOTES ROUTES =====
 app.get('/api/quotes', async (req, res) => {
   try {
-    const [quotes] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC');
+    const [rows] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC');
     
-    // Buscar itens para cada quote
-    for (let quote of quotes) {
-      const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [quote.id]);
+    // Buscar items para cada quote
+    for (let quote of rows) {
+      const [items] = await pool.execute(
+        'SELECT * FROM quote_items WHERE quoteId = ?',
+        [quote.id]
+      );
       quote.items = items;
       
-      // Buscar company info snapshot (usar current para agora)
+      // Adicionar company info snapshot (simplificado)
       const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
       quote.companyInfoSnapshot = companyInfo[0] || {};
     }
     
-    res.json(quotes);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [rows] = await pool.execute('SELECT * FROM quotes WHERE id = ?', [id]);
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Quote não encontrado' });
+    }
+    
+    const quote = rows[0];
+    
+    // Buscar items
+    const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [id]);
+    quote.items = items;
+    
+    // Buscar company info
+    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
+    quote.companyInfoSnapshot = companyInfo[0] || {};
+    
+    res.json(quote);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -706,14 +739,13 @@ app.post('/api/quotes', async (req, res) => {
     
     // Buscar company info para snapshot
     const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-    const companySnapshot = companyInfo[0] || {};
     
     await pool.execute(`
       INSERT INTO quotes (id, quoteNumber, customerId, clientName, clientContact, subtotal, discountType, discountValue, discountAmountCalculated, subtotalAfterDiscount, totalCash, totalCard, downPaymentApplied, selectedPaymentMethod, paymentDate, deliveryDeadline, status, notes, salespersonUsername, salespersonFullName)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [id, quoteNumber, quote.customerId, quote.clientName, quote.clientContact, quote.subtotal, quote.discountType, quote.discountValue, quote.discountAmountCalculated, quote.subtotalAfterDiscount, quote.totalCash, quote.totalCard, quote.downPaymentApplied, quote.selectedPaymentMethod, quote.paymentDate, quote.deliveryDeadline, quote.status, quote.notes, quote.salespersonUsername, quote.salespersonFullName]);
     
-    // Inserir itens
+    // Salvar items
     if (quote.items && quote.items.length > 0) {
       for (let item of quote.items) {
         const itemId = generateId();
@@ -724,29 +756,7 @@ app.post('/api/quotes', async (req, res) => {
       }
     }
     
-    res.json({ id, quoteNumber, companyInfoSnapshot: companySnapshot, ...quote });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [quotes] = await pool.execute('SELECT * FROM quotes WHERE id = ?', [id]);
-    
-    if (quotes.length === 0) {
-      return res.status(404).json({ message: 'Quote não encontrado' });
-    }
-    
-    const quote = quotes[0];
-    const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [id]);
-    quote.items = items;
-    
-    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-    quote.companyInfoSnapshot = companyInfo[0] || {};
-    
-    res.json(quote);
+    res.json({ id, quoteNumber, companyInfoSnapshot: companyInfo[0] || {}, ...quote });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -785,12 +795,12 @@ app.put('/api/users/:id', async (req, res) => {
     
     if (user.password) {
       await pool.execute(`
-        UPDATE users SET fullName = ?, password = ?, role = ? WHERE id = ?
-      `, [user.fullName, user.password, user.role, id]);
+        UPDATE users SET username = ?, fullName = ?, password = ?, role = ? WHERE id = ?
+      `, [user.username, user.fullName, user.password, user.role, id]);
     } else {
       await pool.execute(`
-        UPDATE users SET fullName = ?, role = ? WHERE id = ?
-      `, [user.fullName, user.role, id]);
+        UPDATE users SET username = ?, fullName = ?, role = ? WHERE id = ?
+      `, [user.username, user.fullName, user.role, id]);
     }
     
     res.json(user);
@@ -809,7 +819,134 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
-// ===== SUPPLIERS ROUTES =====
+// ===== ACCOUNTS PAYABLE ROUTES (IMPLEMENTAÇÃO COMPLETA) =====
+app.get('/api/accounts-payable', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM accounts_payable ORDER BY dueDate ASC');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/accounts-payable', async (req, res) => {
+  try {
+    const entry = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, entry.name, entry.amount, entry.dueDate, entry.isPaid || false, entry.notes, entry.seriesId, entry.totalInstallmentsInSeries, entry.installmentNumberOfSeries]);
+    
+    res.json({ id, ...entry });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/accounts-payable/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const entry = req.body;
+    
+    await pool.execute(`
+      UPDATE accounts_payable 
+      SET name = ?, amount = ?, dueDate = ?, isPaid = ?, notes = ?
+      WHERE id = ?
+    `, [entry.name, entry.amount, entry.dueDate, entry.isPaid, entry.notes, id]);
+    
+    res.json(entry);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/accounts-payable/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM accounts_payable WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/accounts-payable/:id/toggle-paid', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Buscar estado atual
+    const [rows] = await pool.execute('SELECT isPaid FROM accounts_payable WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Entrada não encontrada' });
+    }
+    
+    const newPaidStatus = !rows[0].isPaid;
+    await pool.execute('UPDATE accounts_payable SET isPaid = ? WHERE id = ?', [newPaidStatus, id]);
+    
+    // Retornar a entrada atualizada
+    const [updatedRows] = await pool.execute('SELECT * FROM accounts_payable WHERE id = ?', [id]);
+    res.json(updatedRows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/accounts-payable/series', async (req, res) => {
+  try {
+    const { baseEntry, installments, frequency } = req.body;
+    const seriesId = generateId();
+    const installmentAmount = baseEntry.amount / installments;
+    const createdEntries = [];
+    
+    for (let i = 0; i < installments; i++) {
+      const entryId = generateId();
+      const dueDate = new Date(baseEntry.dueDate);
+      
+      if (frequency === 'monthly') {
+        dueDate.setMonth(dueDate.getMonth() + i);
+      } else if (frequency === 'weekly') {
+        dueDate.setDate(dueDate.getDate() + (i * 7));
+      }
+      
+      const entryName = `${baseEntry.name} (${i + 1}/${installments})`;
+      
+      await pool.execute(`
+        INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [entryId, entryName, installmentAmount, dueDate.toISOString().split('T')[0], baseEntry.isPaid || false, baseEntry.notes, seriesId, installments, i + 1]);
+      
+      createdEntries.push({
+        id: entryId,
+        name: entryName,
+        amount: installmentAmount,
+        dueDate: dueDate.toISOString().split('T')[0],
+        isPaid: baseEntry.isPaid || false,
+        notes: baseEntry.notes,
+        seriesId,
+        totalInstallmentsInSeries: installments,
+        installmentNumberOfSeries: i + 1
+      });
+    }
+    
+    res.json(createdEntries);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/accounts-payable/series/:seriesId', async (req, res) => {
+  try {
+    const { seriesId } = req.params;
+    await pool.execute('DELETE FROM accounts_payable WHERE seriesId = ?', [seriesId]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SUPPLIERS ROUTES (IMPLEMENTAÇÃO COMPLETA) =====
 app.get('/api/suppliers', async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT * FROM suppliers ORDER BY name');
@@ -841,7 +978,9 @@ app.put('/api/suppliers/:id', async (req, res) => {
     const supplier = req.body;
     
     await pool.execute(`
-      UPDATE suppliers SET name = ?, cnpj = ?, phone = ?, email = ?, address = ?, notes = ? WHERE id = ?
+      UPDATE suppliers 
+      SET name = ?, cnpj = ?, phone = ?, email = ?, address = ?, notes = ?
+      WHERE id = ?
     `, [supplier.name, supplier.cnpj, supplier.phone, supplier.email, supplier.address, supplier.notes, id]);
     
     res.json(supplier);
@@ -853,6 +992,7 @@ app.put('/api/suppliers/:id', async (req, res) => {
 app.delete('/api/suppliers/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    // O CASCADE nas FKs já vai deletar as dívidas e créditos relacionados
     await pool.execute('DELETE FROM suppliers WHERE id = ?', [id]);
     res.status(204).send();
   } catch (error) {
@@ -860,10 +1000,10 @@ app.delete('/api/suppliers/:id', async (req, res) => {
   }
 });
 
-// ===== DEBTS ROUTES =====
+// ===== SUPPLIER DEBTS ROUTES =====
 app.get('/api/suppliers/debts', async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM debts ORDER BY dateAdded DESC');
+    const [rows] = await pool.execute('SELECT * FROM supplier_debts ORDER BY dateAdded DESC');
     res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -876,7 +1016,7 @@ app.post('/api/suppliers/debts', async (req, res) => {
     const id = generateId();
     
     await pool.execute(`
-      INSERT INTO debts (id, supplierId, description, totalAmount, dateAdded)
+      INSERT INTO supplier_debts (id, supplierId, description, totalAmount, dateAdded)
       VALUES (?, ?, ?, ?, ?)
     `, [id, debt.supplierId, debt.description, debt.totalAmount, debt.dateAdded]);
     
@@ -889,7 +1029,7 @@ app.post('/api/suppliers/debts', async (req, res) => {
 app.delete('/api/suppliers/debts/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.execute('DELETE FROM debts WHERE id = ?', [id]);
+    await pool.execute('DELETE FROM supplier_debts WHERE id = ?', [id]);
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -927,122 +1067,6 @@ app.delete('/api/suppliers/supplier-credits/:id', async (req, res) => {
     const { id } = req.params;
     await pool.execute('DELETE FROM supplier_credits WHERE id = ?', [id]);
     res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== ACCOUNTS PAYABLE ROUTES =====
-app.get('/api/accounts-payable', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM accounts_payable ORDER BY dueDate ASC');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/accounts-payable', async (req, res) => {
-  try {
-    const entry = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, entry.name, entry.amount, entry.dueDate, entry.isPaid, entry.notes, entry.seriesId, entry.totalInstallmentsInSeries, entry.installmentNumberOfSeries]);
-    
-    res.json({ id, ...entry });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/accounts-payable/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const entry = req.body;
-    
-    await pool.execute(`
-      UPDATE accounts_payable SET name = ?, amount = ?, dueDate = ?, isPaid = ?, notes = ? WHERE id = ?
-    `, [entry.name, entry.amount, entry.dueDate, entry.isPaid, entry.notes, id]);
-    
-    res.json(entry);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/accounts-payable/series', async (req, res) => {
-  try {
-    const { baseEntry, installments, frequency } = req.body;
-    const seriesId = generateId();
-    const entries = [];
-    
-    for (let i = 0; i < installments; i++) {
-      const id = generateId();
-      const installmentAmount = baseEntry.amount / installments;
-      
-      let dueDate = new Date(baseEntry.dueDate);
-      if (frequency === 'monthly') {
-        dueDate.setMonth(dueDate.getMonth() + i);
-      } else if (frequency === 'weekly') {
-        dueDate.setDate(dueDate.getDate() + (i * 7));
-      }
-      
-      const entry = {
-        id,
-        name: `${baseEntry.name} - Parcela ${i + 1}/${installments}`,
-        amount: installmentAmount,
-        dueDate: dueDate.toISOString().split('T')[0],
-        isPaid: baseEntry.isPaid,
-        notes: baseEntry.notes,
-        seriesId,
-        totalInstallmentsInSeries: installments,
-        installmentNumberOfSeries: i + 1
-      };
-      
-      await pool.execute(`
-        INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [entry.id, entry.name, entry.amount, entry.dueDate, entry.isPaid, entry.notes, entry.seriesId, entry.totalInstallmentsInSeries, entry.installmentNumberOfSeries]);
-      
-      entries.push(entry);
-    }
-    
-    res.json(entries);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/accounts-payable/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM accounts_payable WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/accounts-payable/series/:seriesId', async (req, res) => {
-  try {
-    const { seriesId } = req.params;
-    await pool.execute('DELETE FROM accounts_payable WHERE seriesId = ?', [seriesId]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/accounts-payable/:id/toggle-paid', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('UPDATE accounts_payable SET isPaid = NOT isPaid WHERE id = ?', [id]);
-    
-    const [rows] = await pool.execute('SELECT * FROM accounts_payable WHERE id = ?', [id]);
-    res.json(rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1097,6 +1121,7 @@ app.use((err, req, res, next) => {
 });
 
 // ============= STARTUP =============
+
 const startServer = async () => {
   try {
     console.log('🚀 Inicializando MaxControl com MySQL...');
@@ -1108,6 +1133,7 @@ const startServer = async () => {
       ssl: dbConfig.ssl
     });
     
+    // Test connection
     const connected = await testConnection();
     if (connected) {
       console.log('✅ MySQL conectado, criando schema...');

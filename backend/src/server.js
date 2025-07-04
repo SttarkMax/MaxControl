@@ -2,12 +2,13 @@ const express = require('express');
 const cors = require('cors');
 const session = require('express-session');
 const mysql = require('mysql2/promise');
+const { setupRoutes } = require('./routes');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-// ❌ REMOVIDO: const routes = require('./routes'); // Esta linha estava causando o erro
 
-// Configuração do banco MySQL (cPanel)
+// ============= CONFIGURAÇÃO DO BANCO MYSQL =============
+
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
@@ -48,11 +49,12 @@ const testConnection = async () => {
   }
 };
 
-// ===== CORS CONFIGURAÇÃO CORRIGIDA =====
+// ============= CONFIGURAÇÃO CORS =============
+
 console.log('🌍 NODE_ENV:', process.env.NODE_ENV);
 console.log('🌍 Configurando CORS...');
 
-// Lista de origens permitidas - ATUALIZADA
+// Lista de origens permitidas
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000', 
@@ -64,7 +66,6 @@ const allowedOrigins = [
   'http://www.maxcontrol.f13design.com.br'
 ];
 
-// CONFIGURAÇÃO CORS SIMPLIFICADA E CORRIGIDA
 const corsOptions = {
   origin: function (origin, callback) {
     console.log('🔍 CORS origin recebida:', origin);
@@ -103,6 +104,8 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
+// ============= MIDDLEWARE =============
+
 // Aplicar CORS ANTES de qualquer outro middleware
 app.use(cors(corsOptions));
 
@@ -124,7 +127,8 @@ app.use(session({
   }
 }));
 
-// Schema MySQL completo com todas as tabelas
+// ============= SCHEMA MYSQL =============
+
 const createAllTables = async () => {
   try {
     console.log('🔧 Criando schema MySQL completo...');
@@ -367,741 +371,13 @@ const insertInitialData = async () => {
   }
 };
 
-// Função para gerar IDs únicos
-const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 9);
+// ============= CONFIGURAÇÃO DAS ROTAS =============
 
-// ============= ROTAS DA API =============
+// Configurar e usar as rotas
+const routes = setupRoutes(pool);
+app.use('/api', routes);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development',
-    database: 'mysql-cpanel'
-  });
-});
-
-// Test DB
-app.get('/api/test-db', async (req, res) => {
-  try {
-    const connected = await testConnection();
-    if (connected) {
-      const [rows] = await pool.execute('SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = ?', [dbConfig.database]);
-      res.json({ 
-        database: 'connected',
-        type: 'mysql-cpanel',
-        timestamp: new Date().toISOString(),
-        tables: rows[0].table_count,
-        config: {
-          host: dbConfig.host,
-          user: dbConfig.user,
-          database: dbConfig.database,
-          port: dbConfig.port
-        }
-      });
-    } else {
-      res.status(500).json({ 
-        database: 'disconnected',
-        type: 'mysql-cpanel',
-        timestamp: new Date().toISOString()
-      });
-    }
-  } catch (error) {
-    res.status(500).json({ 
-      database: 'error',
-      error: error.message
-    });
-  }
-});
-
-// ===== AUTH ROUTES =====
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    console.log('🔐 Tentativa de login:', username);
-    
-    const [rows] = await pool.execute(`
-      SELECT * FROM users WHERE username = ? AND password = ?
-    `, [username, password]);
-
-    if (rows.length > 0) {
-      const user = rows[0];
-      req.session.user = {
-        id: user.id,
-        username: user.username,
-        fullName: user.fullName,
-        role: user.role
-      };
-      
-      console.log('✅ Login bem-sucedido:', username);
-      res.json(req.session.user);
-    } else {
-      console.log('❌ Login falhou:', username);
-      res.status(401).json({ message: 'Credenciais inválidas' });
-    }
-  } catch (error) {
-    console.error('❌ Erro no login:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/auth/me', (req, res) => {
-  console.log('🔍 Check auth, session:', req.session.user ? 'exists' : 'none');
-  if (req.session.user) {
-    res.json(req.session.user);
-  } else {
-    res.status(401).json({ message: 'Não autenticado' });
-  }
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error('❌ Erro no logout:', err);
-      return res.status(500).json({ error: 'Erro ao fazer logout' });
-    }
-    res.json({ message: 'Logout realizado com sucesso' });
-  });
-});
-
-// ===== COMPANY INFO ROUTES =====
-app.get('/api/company-info', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-    if (rows.length > 0) {
-      res.json(rows[0]);
-    } else {
-      res.json({ 
-        name: 'MaxControl', 
-        address: '', 
-        phone: '', 
-        email: '' 
-      });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/company-info', async (req, res) => {
-  try {
-    const { name, address, phone, email, cnpj, instagram, website } = req.body;
-    
-    const [existing] = await pool.execute('SELECT id FROM company_info LIMIT 1');
-    
-    if (existing.length > 0) {
-      await pool.execute(`
-        UPDATE company_info 
-        SET name = ?, address = ?, phone = ?, email = ?, cnpj = ?, instagram = ?, website = ?
-        WHERE id = ?
-      `, [name, address, phone, email, cnpj, instagram, website, existing[0].id]);
-    } else {
-      await pool.execute(`
-        INSERT INTO company_info (name, address, phone, email, cnpj, instagram, website)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [name, address, phone, email, cnpj, instagram, website]);
-    }
-    
-    res.json({ message: 'Informações salvas com sucesso' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== PRODUCTS ROUTES =====
-app.get('/api/products', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM products ORDER BY name');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/products', async (req, res) => {
-  try {
-    const product = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO products (id, name, description, pricingModel, basePrice, unit, customCashPrice, customCardPrice, supplierCost, categoryId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, product.name, product.description, product.pricingModel, product.basePrice, product.unit, product.customCashPrice, product.customCardPrice, product.supplierCost, product.categoryId]);
-    
-    res.json({ id, ...product });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/products/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const product = req.body;
-    
-    await pool.execute(`
-      UPDATE products 
-      SET name = ?, description = ?, pricingModel = ?, basePrice = ?, unit = ?, customCashPrice = ?, customCardPrice = ?, supplierCost = ?, categoryId = ?
-      WHERE id = ?
-    `, [product.name, product.description, product.pricingModel, product.basePrice, product.unit, product.customCashPrice, product.customCardPrice, product.supplierCost, product.categoryId, id]);
-    
-    res.json(product);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/products/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM products WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== CATEGORIES ROUTES =====
-app.get('/api/categories', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM categories ORDER BY name');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/categories', async (req, res) => {
-  try {
-    const category = req.body;
-    const id = generateId();
-    
-    await pool.execute('INSERT INTO categories (id, name) VALUES (?, ?)', [id, category.name]);
-    res.json({ id, ...category });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/categories/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const category = req.body;
-    
-    await pool.execute('UPDATE categories SET name = ? WHERE id = ?', [category.name, id]);
-    res.json(category);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/categories/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM categories WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== CUSTOMERS ROUTES =====
-app.get('/api/customers', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM customers ORDER BY name');
-    
-    // Buscar down payments para cada cliente
-    for (let customer of rows) {
-      const [downPayments] = await pool.execute(
-        'SELECT * FROM customer_down_payments WHERE customerId = ? ORDER BY date DESC',
-        [customer.id]
-      );
-      customer.downPayments = downPayments;
-    }
-    
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/customers', async (req, res) => {
-  try {
-    const customer = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO customers (id, name, documentType, documentNumber, phone, email, address, city, postalCode)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, customer.address, customer.city, customer.postalCode]);
-    
-    // Salvar down payments se existirem
-    if (customer.downPayments && customer.downPayments.length > 0) {
-      for (let dp of customer.downPayments) {
-        const dpId = generateId();
-        await pool.execute(`
-          INSERT INTO customer_down_payments (id, customerId, amount, date, description)
-          VALUES (?, ?, ?, ?, ?)
-        `, [dpId, id, dp.amount, dp.date, dp.description]);
-      }
-    }
-    
-    res.json({ id, ...customer });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/customers/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const customer = req.body;
-    
-    await pool.execute(`
-      UPDATE customers 
-      SET name = ?, documentType = ?, documentNumber = ?, phone = ?, email = ?, address = ?, city = ?, postalCode = ?
-      WHERE id = ?
-    `, [customer.name, customer.documentType, customer.documentNumber, customer.phone, customer.email, customer.address, customer.city, customer.postalCode, id]);
-    
-    // Atualizar down payments (remover os antigos e inserir os novos)
-    await pool.execute('DELETE FROM customer_down_payments WHERE customerId = ?', [id]);
-    
-    if (customer.downPayments && customer.downPayments.length > 0) {
-      for (let dp of customer.downPayments) {
-        const dpId = generateId();
-        await pool.execute(`
-          INSERT INTO customer_down_payments (id, customerId, amount, date, description)
-          VALUES (?, ?, ?, ?, ?)
-        `, [dpId, id, dp.amount, dp.date, dp.description]);
-      }
-    }
-    
-    res.json(customer);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/customers/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    // O CASCADE na FK já vai deletar os down payments
-    await pool.execute('DELETE FROM customers WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== QUOTES ROUTES =====
-app.get('/api/quotes', async (req, res) => {
-  try {
-    const [quotes] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC');
-    
-    // Para cada quote, buscar os itens
-    for (let quote of quotes) {
-      const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [quote.id]);
-      quote.items = items;
-      
-      // Buscar informações da empresa (snapshot)
-      const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-      quote.companyInfoSnapshot = companyInfo[0] || { name: 'MaxControl', address: '', phone: '', email: '' };
-    }
-    
-    res.json(quotes);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [quotes] = await pool.execute('SELECT * FROM quotes WHERE id = ?', [id]);
-    
-    if (quotes.length === 0) {
-      return res.status(404).json({ error: 'Orçamento não encontrado' });
-    }
-    
-    const quote = quotes[0];
-    
-    // Buscar itens do orçamento
-    const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [id]);
-    quote.items = items;
-    
-    // Buscar informações da empresa (snapshot)
-    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-    quote.companyInfoSnapshot = companyInfo[0] || { name: 'MaxControl', address: '', phone: '', email: '' };
-    
-    res.json(quote);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/quotes', async (req, res) => {
-  try {
-    const quote = req.body;
-    const id = generateId();
-    const quoteNumber = `ORC-${Date.now()}`;
-    
-    // Buscar informações da empresa para snapshot
-    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-    const companySnapshot = companyInfo[0] || { name: 'MaxControl', address: '', phone: '', email: '' };
-    
-    // Inserir o orçamento
-    await pool.execute(`
-      INSERT INTO quotes (
-        id, quoteNumber, customerId, clientName, clientContact, subtotal, 
-        discountType, discountValue, discountAmountCalculated, subtotalAfterDiscount,
-        totalCash, totalCard, downPaymentApplied, selectedPaymentMethod, 
-        paymentDate, deliveryDeadline, status, notes, salespersonUsername, 
-        salespersonFullName, createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      id, quoteNumber, quote.customerId, quote.clientName, quote.clientContact, quote.subtotal,
-      quote.discountType, quote.discountValue, quote.discountAmountCalculated, quote.subtotalAfterDiscount,
-      quote.totalCash, quote.totalCard, quote.downPaymentApplied, quote.selectedPaymentMethod,
-      quote.paymentDate, quote.deliveryDeadline, quote.status, quote.notes, 
-      quote.salespersonUsername, quote.salespersonFullName, new Date().toISOString()
-    ]);
-    
-    // Inserir os itens do orçamento
-    for (let item of quote.items) {
-      const itemId = generateId();
-      await pool.execute(`
-        INSERT INTO quote_items (
-          id, quoteId, productId, productName, quantity, unitPrice, totalPrice,
-          pricingModel, width, height, itemCountForAreaCalc
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        itemId, id, item.productId, item.productName, item.quantity, item.unitPrice, 
-        item.totalPrice, item.pricingModel, item.width, item.height, item.itemCountForAreaCalc
-      ]);
-    }
-    
-    const responseQuote = {
-      id,
-      quoteNumber,
-      ...quote,
-      companyInfoSnapshot: companySnapshot,
-      createdAt: new Date().toISOString()
-    };
-    
-    res.json(responseQuote);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const quote = req.body;
-    
-    // Atualizar o orçamento
-    await pool.execute(`
-      UPDATE quotes SET 
-        customerId = ?, clientName = ?, clientContact = ?, subtotal = ?,
-        discountType = ?, discountValue = ?, discountAmountCalculated = ?, subtotalAfterDiscount = ?,
-        totalCash = ?, totalCard = ?, downPaymentApplied = ?, selectedPaymentMethod = ?,
-        paymentDate = ?, deliveryDeadline = ?, status = ?, notes = ?,
-        salespersonUsername = ?, salespersonFullName = ?
-      WHERE id = ?
-    `, [
-      quote.customerId, quote.clientName, quote.clientContact, quote.subtotal,
-      quote.discountType, quote.discountValue, quote.discountAmountCalculated, quote.subtotalAfterDiscount,
-      quote.totalCash, quote.totalCard, quote.downPaymentApplied, quote.selectedPaymentMethod,
-      quote.paymentDate, quote.deliveryDeadline, quote.status, quote.notes,
-      quote.salespersonUsername, quote.salespersonFullName, id
-    ]);
-    
-    // Remover itens antigos e inserir novos
-    await pool.execute('DELETE FROM quote_items WHERE quoteId = ?', [id]);
-    
-    for (let item of quote.items) {
-      const itemId = generateId();
-      await pool.execute(`
-        INSERT INTO quote_items (
-          id, quoteId, productId, productName, quantity, unitPrice, totalPrice,
-          pricingModel, width, height, itemCountForAreaCalc
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        itemId, id, item.productId, item.productName, item.quantity, item.unitPrice,
-        item.totalPrice, item.pricingModel, item.width, item.height, item.itemCountForAreaCalc
-      ]);
-    }
-    
-    res.json(quote);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    // O CASCADE na FK já vai deletar os itens
-    await pool.execute('DELETE FROM quotes WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== USERS ROUTES =====
-app.get('/api/users', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT id, username, fullName, role FROM users');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/users', async (req, res) => {
-  try {
-    const user = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO users (id, username, fullName, password, role)
-      VALUES (?, ?, ?, ?, ?)
-    `, [id, user.username, user.fullName, user.password, user.role]);
-    
-    res.json({ id, ...user });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.body;
-    
-    // Se não forneceu senha, não atualizar a senha
-    if (user.password) {
-      await pool.execute(`
-        UPDATE users SET username = ?, fullName = ?, password = ?, role = ? WHERE id = ?
-      `, [user.username, user.fullName, user.password, user.role, id]);
-    } else {
-      await pool.execute(`
-        UPDATE users SET username = ?, fullName = ?, role = ? WHERE id = ?
-      `, [user.username, user.fullName, user.role, id]);
-    }
-    
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM users WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== ACCOUNTS PAYABLE ROUTES =====
-app.get('/api/accounts-payable', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM accounts_payable ORDER BY dueDate');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/accounts-payable', async (req, res) => {
-  try {
-    const entry = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, entry.name, entry.amount, entry.dueDate, entry.isPaid || false, entry.notes, entry.seriesId, entry.totalInstallmentsInSeries, entry.installmentNumberOfSeries]);
-    
-    res.json({ id, ...entry, createdAt: new Date().toISOString() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/accounts-payable/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const entry = req.body;
-    
-    await pool.execute(`
-      UPDATE accounts_payable SET name = ?, amount = ?, dueDate = ?, isPaid = ?, notes = ? WHERE id = ?
-    `, [entry.name, entry.amount, entry.dueDate, entry.isPaid, entry.notes, id]);
-    
-    res.json(entry);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/accounts-payable/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM accounts_payable WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== SUPPLIERS ROUTES =====
-app.get('/api/suppliers', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM suppliers ORDER BY name');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/suppliers', async (req, res) => {
-  try {
-    const supplier = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO suppliers (id, name, cnpj, phone, email, address, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [id, supplier.name, supplier.cnpj, supplier.phone, supplier.email, supplier.address, supplier.notes]);
-    
-    res.json({ id, ...supplier });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/suppliers/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const supplier = req.body;
-    
-    await pool.execute(`
-      UPDATE suppliers SET name = ?, cnpj = ?, phone = ?, email = ?, address = ?, notes = ? WHERE id = ?
-    `, [supplier.name, supplier.cnpj, supplier.phone, supplier.email, supplier.address, supplier.notes, id]);
-    
-    res.json(supplier);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/suppliers/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM suppliers WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== SUPPLIER DEBTS ROUTES =====
-app.get('/api/suppliers/debts', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM supplier_debts ORDER BY dateAdded DESC');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/suppliers/debts', async (req, res) => {
-  try {
-    const debt = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO supplier_debts (id, supplierId, description, totalAmount, dateAdded)
-      VALUES (?, ?, ?, ?, ?)
-    `, [id, debt.supplierId, debt.description, debt.totalAmount, debt.dateAdded]);
-    
-    res.json({ id, ...debt });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/suppliers/debts/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM supplier_debts WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== SUPPLIER CREDITS ROUTES =====
-app.get('/api/suppliers/supplier-credits', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM supplier_credits ORDER BY date DESC');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/suppliers/supplier-credits', async (req, res) => {
-  try {
-    const credit = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO supplier_credits (id, supplierId, amount, date, description)
-      VALUES (?, ?, ?, ?, ?)
-    `, [id, credit.supplierId, credit.amount, credit.date, credit.description]);
-    
-    res.json({ id, ...credit });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/suppliers/supplier-credits/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM supplier_credits WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Debug endpoint
-app.get('/api/debug', (req, res) => {
-  res.json({
-    session: req.session.user || 'none',
-    timestamp: new Date().toISOString(),
-    database: 'mysql-cpanel',
-    config: {
-      host: dbConfig.host,
-      user: dbConfig.user,
-      database: dbConfig.database,
-      port: dbConfig.port
-    },
-    headers: {
-      origin: req.headers.origin,
-      userAgent: req.headers['user-agent']
-    }
-  });
-});
-
-// Recreate schema
+// Recreate schema endpoint
 app.get('/api/recreate-schema', async (req, res) => {
   try {
     await createAllTables();
@@ -1110,6 +386,8 @@ app.get('/api/recreate-schema', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ============= ERROR HANDLERS =============
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -1156,7 +434,7 @@ const startServer = async () => {
       console.log(`🚀 MaxControl rodando na porta ${PORT}`);
       console.log(`🗄️ Database: MySQL cPanel`);
       console.log(`👤 Login padrão: admin/admin`);
-      console.log(`🔗 Health: http://localhost:${PORT}/health`);
+      console.log(`🔗 Health: http://localhost:${PORT}/api/health`);
       console.log(`🔐 Auth: http://localhost:${PORT}/api/auth/me`);
       console.log(`🔍 Debug: http://localhost:${PORT}/api/debug`);
       console.log(`🌍 CORS configurado para:`, allowedOrigins);

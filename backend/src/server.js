@@ -47,57 +47,96 @@ const testConnection = async () => {
   }
 };
 
-// CORS configuração
+// ===== CORS CONFIGURAÇÃO CORRIGIDA =====
+console.log('🌍 NODE_ENV:', process.env.NODE_ENV);
+console.log('🌍 Configurando CORS...');
+
+// Lista de origens permitidas
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000', 
+  'https://localhost:5173',
+  'https://localhost:3000',
+  'https://maxcontrol.f13design.com.br',
+  'https://www.maxcontrol.f13design.com.br',
+  'http://maxcontrol.f13design.com.br',
+  'http://www.maxcontrol.f13design.com.br'
+];
+
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'http://localhost:3000', 
-      'https://localhost:5173',
-      'https://localhost:3000',
-      'https://maxcontrol.f13design.com.br',
-      'https://www.maxcontrol.f13design.com.br',
-    ];
+    console.log('🔍 CORS origin recebida:', origin);
     
-    if (!origin) return callback(null, true);
+    // Permitir requisições sem origin (ex: Postman, mobile apps)
+    if (!origin) {
+      console.log('✅ CORS: Requisição sem origin permitida');
+      return callback(null, true);
+    }
     
+    // Verificar se a origin está na lista permitida
     if (allowedOrigins.includes(origin)) {
+      console.log('✅ CORS: Origin permitida:', origin);
       callback(null, true);
     } else {
-      console.log('❌ CORS bloqueado para:', origin);
-      callback(null, true); // TEMPORÁRIO: permitir todas para debug
+      console.log('❌ CORS: Origin BLOQUEADA:', origin);
+      // Em desenvolvimento, permitir qualquer origin
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🔧 CORS: Permitindo em desenvolvimento');
+        callback(null, true);
+      } else {
+        callback(new Error('Bloqueado pelo CORS'), false);
+      }
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  optionsSuccessStatus: 200
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'Accept', 
+    'Origin',
+    'Access-Control-Allow-Credentials'
+  ],
+  optionsSuccessStatus: 200 // Para suportar navegadores legados
 };
 
+// Aplicar CORS antes de tudo
 app.use(cors(corsOptions));
+
+// Middleware para logs detalhados
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const method = req.method;
+  const path = req.path;
+  
+  console.log(`🌐 ${method} ${path} from ${origin || 'no-origin'}`);
+  
+  // Headers CORS manuais como fallback
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else if (!origin) {
+    // Para requisições sem origin
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
+  
+  // Responder OPTIONS imediatamente
+  if (method === 'OPTIONS') {
+    console.log('✅ Respondendo OPTIONS preflight');
+    return res.status(200).end();
+  }
+  
+  next();
+});
 
 // Middleware básico
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.set('trust proxy', 1);
-
-// Headers CORS adicionais
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
-  
-  console.log(`🌐 ${req.method} ${req.path} from ${origin || 'no-origin'}`);
-  
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
 
 // Configuração de sessão
 app.use(session({
@@ -250,7 +289,7 @@ const createAllTables = async () => {
       )
     `);
 
-    // ===== NOVAS TABELAS PARA CONTAS A PAGAR =====
+    // Accounts Payable
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS accounts_payable (
         id VARCHAR(36) PRIMARY KEY,
@@ -266,7 +305,7 @@ const createAllTables = async () => {
       )
     `);
 
-    // ===== NOVAS TABELAS PARA FORNECEDORES =====
+    // Suppliers
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS suppliers (
         id VARCHAR(36) PRIMARY KEY,
@@ -305,7 +344,7 @@ const createAllTables = async () => {
     `);
 
     await insertInitialData();
-    console.log('✅ Schema MySQL completo criado com sucesso!');
+    console.log('✅ Schema MySQL criado com sucesso!');
   } catch (error) {
     console.error('❌ Erro ao criar schema MySQL:', error);
   }
@@ -351,7 +390,7 @@ const insertInitialData = async () => {
     }
 
   } catch (error) {
-    console.error('❌ Erro ao inserir dados MySQL:', error);
+    console.error('❌ Erro ao inserir dados iniciais:', error);
   }
 };
 
@@ -676,396 +715,6 @@ app.delete('/api/customers/:id', async (req, res) => {
     const { id } = req.params;
     // O CASCADE na FK já vai deletar os down payments
     await pool.execute('DELETE FROM customers WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== QUOTES ROUTES =====
-app.get('/api/quotes', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC');
-    
-    // Buscar items para cada quote
-    for (let quote of rows) {
-      const [items] = await pool.execute(
-        'SELECT * FROM quote_items WHERE quoteId = ?',
-        [quote.id]
-      );
-      quote.items = items;
-      
-      // Adicionar company info snapshot (simplificado)
-      const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-      quote.companyInfoSnapshot = companyInfo[0] || {};
-    }
-    
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/quotes/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [rows] = await pool.execute('SELECT * FROM quotes WHERE id = ?', [id]);
-    
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Quote não encontrado' });
-    }
-    
-    const quote = rows[0];
-    
-    // Buscar items
-    const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [id]);
-    quote.items = items;
-    
-    // Buscar company info
-    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-    quote.companyInfoSnapshot = companyInfo[0] || {};
-    
-    res.json(quote);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/quotes', async (req, res) => {
-  try {
-    const quote = req.body;
-    const id = generateId();
-    const quoteNumber = `ORC-${Date.now()}`;
-    
-    // Buscar company info para snapshot
-    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
-    
-    await pool.execute(`
-      INSERT INTO quotes (id, quoteNumber, customerId, clientName, clientContact, subtotal, discountType, discountValue, discountAmountCalculated, subtotalAfterDiscount, totalCash, totalCard, downPaymentApplied, selectedPaymentMethod, paymentDate, deliveryDeadline, status, notes, salespersonUsername, salespersonFullName)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, quoteNumber, quote.customerId, quote.clientName, quote.clientContact, quote.subtotal, quote.discountType, quote.discountValue, quote.discountAmountCalculated, quote.subtotalAfterDiscount, quote.totalCash, quote.totalCard, quote.downPaymentApplied, quote.selectedPaymentMethod, quote.paymentDate, quote.deliveryDeadline, quote.status, quote.notes, quote.salespersonUsername, quote.salespersonFullName]);
-    
-    // Salvar items
-    if (quote.items && quote.items.length > 0) {
-      for (let item of quote.items) {
-        const itemId = generateId();
-        await pool.execute(`
-          INSERT INTO quote_items (id, quoteId, productId, productName, quantity, unitPrice, totalPrice, pricingModel, width, height, itemCountForAreaCalc)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [itemId, id, item.productId, item.productName, item.quantity, item.unitPrice, item.totalPrice, item.pricingModel, item.width, item.height, item.itemCountForAreaCalc]);
-      }
-    }
-    
-    res.json({ id, quoteNumber, companyInfoSnapshot: companyInfo[0] || {}, ...quote });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== USERS ROUTES =====
-app.get('/api/users', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT id, username, fullName, role FROM users ORDER BY username');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/users', async (req, res) => {
-  try {
-    const user = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO users (id, username, fullName, password, role)
-      VALUES (?, ?, ?, ?, ?)
-    `, [id, user.username, user.fullName, user.password, user.role]);
-    
-    res.json({ id, ...user });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.body;
-    
-    if (user.password) {
-      await pool.execute(`
-        UPDATE users SET username = ?, fullName = ?, password = ?, role = ? WHERE id = ?
-      `, [user.username, user.fullName, user.password, user.role, id]);
-    } else {
-      await pool.execute(`
-        UPDATE users SET username = ?, fullName = ?, role = ? WHERE id = ?
-      `, [user.username, user.fullName, user.role, id]);
-    }
-    
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/users/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM users WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== ACCOUNTS PAYABLE ROUTES (IMPLEMENTAÇÃO COMPLETA) =====
-app.get('/api/accounts-payable', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM accounts_payable ORDER BY dueDate ASC');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/accounts-payable', async (req, res) => {
-  try {
-    const entry = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, entry.name, entry.amount, entry.dueDate, entry.isPaid || false, entry.notes, entry.seriesId, entry.totalInstallmentsInSeries, entry.installmentNumberOfSeries]);
-    
-    res.json({ id, ...entry });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/accounts-payable/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const entry = req.body;
-    
-    await pool.execute(`
-      UPDATE accounts_payable 
-      SET name = ?, amount = ?, dueDate = ?, isPaid = ?, notes = ?
-      WHERE id = ?
-    `, [entry.name, entry.amount, entry.dueDate, entry.isPaid, entry.notes, id]);
-    
-    res.json(entry);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/accounts-payable/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM accounts_payable WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/accounts-payable/:id/toggle-paid', async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    // Buscar estado atual
-    const [rows] = await pool.execute('SELECT isPaid FROM accounts_payable WHERE id = ?', [id]);
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Entrada não encontrada' });
-    }
-    
-    const newPaidStatus = !rows[0].isPaid;
-    await pool.execute('UPDATE accounts_payable SET isPaid = ? WHERE id = ?', [newPaidStatus, id]);
-    
-    // Retornar a entrada atualizada
-    const [updatedRows] = await pool.execute('SELECT * FROM accounts_payable WHERE id = ?', [id]);
-    res.json(updatedRows[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/accounts-payable/series', async (req, res) => {
-  try {
-    const { baseEntry, installments, frequency } = req.body;
-    const seriesId = generateId();
-    const installmentAmount = baseEntry.amount / installments;
-    const createdEntries = [];
-    
-    for (let i = 0; i < installments; i++) {
-      const entryId = generateId();
-      const dueDate = new Date(baseEntry.dueDate);
-      
-      if (frequency === 'monthly') {
-        dueDate.setMonth(dueDate.getMonth() + i);
-      } else if (frequency === 'weekly') {
-        dueDate.setDate(dueDate.getDate() + (i * 7));
-      }
-      
-      const entryName = `${baseEntry.name} (${i + 1}/${installments})`;
-      
-      await pool.execute(`
-        INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [entryId, entryName, installmentAmount, dueDate.toISOString().split('T')[0], baseEntry.isPaid || false, baseEntry.notes, seriesId, installments, i + 1]);
-      
-      createdEntries.push({
-        id: entryId,
-        name: entryName,
-        amount: installmentAmount,
-        dueDate: dueDate.toISOString().split('T')[0],
-        isPaid: baseEntry.isPaid || false,
-        notes: baseEntry.notes,
-        seriesId,
-        totalInstallmentsInSeries: installments,
-        installmentNumberOfSeries: i + 1
-      });
-    }
-    
-    res.json(createdEntries);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/accounts-payable/series/:seriesId', async (req, res) => {
-  try {
-    const { seriesId } = req.params;
-    await pool.execute('DELETE FROM accounts_payable WHERE seriesId = ?', [seriesId]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== SUPPLIERS ROUTES (IMPLEMENTAÇÃO COMPLETA) =====
-app.get('/api/suppliers', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM suppliers ORDER BY name');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/suppliers', async (req, res) => {
-  try {
-    const supplier = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO suppliers (id, name, cnpj, phone, email, address, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [id, supplier.name, supplier.cnpj, supplier.phone, supplier.email, supplier.address, supplier.notes]);
-    
-    res.json({ id, ...supplier });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put('/api/suppliers/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const supplier = req.body;
-    
-    await pool.execute(`
-      UPDATE suppliers 
-      SET name = ?, cnpj = ?, phone = ?, email = ?, address = ?, notes = ?
-      WHERE id = ?
-    `, [supplier.name, supplier.cnpj, supplier.phone, supplier.email, supplier.address, supplier.notes, id]);
-    
-    res.json(supplier);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/suppliers/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    // O CASCADE nas FKs já vai deletar as dívidas e créditos relacionados
-    await pool.execute('DELETE FROM suppliers WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== SUPPLIER DEBTS ROUTES =====
-app.get('/api/suppliers/debts', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM supplier_debts ORDER BY dateAdded DESC');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/suppliers/debts', async (req, res) => {
-  try {
-    const debt = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO supplier_debts (id, supplierId, description, totalAmount, dateAdded)
-      VALUES (?, ?, ?, ?, ?)
-    `, [id, debt.supplierId, debt.description, debt.totalAmount, debt.dateAdded]);
-    
-    res.json({ id, ...debt });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/suppliers/debts/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM supplier_debts WHERE id = ?', [id]);
-    res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ===== SUPPLIER CREDITS ROUTES =====
-app.get('/api/suppliers/supplier-credits', async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT * FROM supplier_credits ORDER BY date DESC');
-    res.json(rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/suppliers/supplier-credits', async (req, res) => {
-  try {
-    const credit = req.body;
-    const id = generateId();
-    
-    await pool.execute(`
-      INSERT INTO supplier_credits (id, supplierId, amount, date, description)
-      VALUES (?, ?, ?, ?, ?)
-    `, [id, credit.supplierId, credit.amount, credit.date, credit.description]);
-    
-    res.json({ id, ...credit });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete('/api/suppliers/supplier-credits/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.execute('DELETE FROM supplier_credits WHERE id = ?', [id]);
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });

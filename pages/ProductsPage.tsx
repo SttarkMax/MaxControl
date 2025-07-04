@@ -1,56 +1,46 @@
 import React from 'react';
 
 const ProductsPage: React.FC = () => {
-  console.log('🚀 ProductsPage renderizando...');
+  console.log('🚀 ProductsPage iniciada');
+  
+  // Teste se o problema é no JSX
+  const testText = "TESTE: Se você está vendo isso, o JSX básico funciona";
+  
+  console.log('📝 Texto de teste:', testText);
   
   return (
-    <div className="p-6 text-gray-300">
-      <div className="bg-green-600 p-4 rounded-lg mb-4">
-        <h1 className="text-white text-xl font-bold">
-          ✅ ProductsPage está funcionando!
-        </h1>
-        <p className="text-green-100 mt-2">
-          Se você está vendo esta mensagem, o componente está carregando corretamente.
-        </p>
+    <div style={{ 
+      padding: '20px', 
+      backgroundColor: 'red', 
+      color: 'white',
+      fontSize: '20px',
+      minHeight: '100vh'
+    }}>
+      <h1>🔴 PÁGINA DE PRODUTOS - TESTE EXTREMO</h1>
+      <p>{testText}</p>
+      <p>Se você não está vendo este texto, o problema é no JSX ou no CSS.</p>
+      
+      <div style={{ backgroundColor: 'blue', padding: '10px', margin: '10px' }}>
+        <p>Este é um teste com div azul</p>
       </div>
       
-      <div className="bg-gray-800 p-6 rounded-lg">
-        <h2 className="text-white text-lg mb-4">🔧 Teste de Funcionalidades</h2>
-        
-        <div className="space-y-3">
-          <div className="bg-gray-700 p-3 rounded">
-            <strong className="text-yellow-400">Console:</strong> Verifique o console (F12) para logs
-          </div>
-          
-          <div className="bg-gray-700 p-3 rounded">
-            <strong className="text-yellow-400">CSS:</strong> Se as cores estão aparecendo, o Tailwind funciona
-          </div>
-          
-          <div className="bg-gray-700 p-3 rounded">
-            <strong className="text-yellow-400">Roteamento:</strong> Se chegou aqui, o React Router funciona
-          </div>
-        </div>
-        
-        <button 
-          onClick={() => {
-            console.log('👆 Botão clicado!');
-            alert('Evento onClick funcionando!');
-          }}
-          className="mt-4 bg-yellow-500 text-black px-4 py-2 rounded hover:bg-yellow-600"
-        >
-          🧪 Testar Eventos
-        </button>
+      <div style={{ backgroundColor: 'green', padding: '10px', margin: '10px' }}>
+        <p>Este é um teste com div verde</p>
       </div>
       
-      <div className="mt-6 bg-blue-900 p-4 rounded-lg">
-        <h3 className="text-blue-200 font-semibold mb-2">🔍 Próximos Passos de Debug:</h3>
-        <ol className="text-blue-100 space-y-1 list-decimal list-inside">
-          <li>Confirme que esta página carrega sem erros</li>
-          <li>Verifique o console para mensagens de log</li>
-          <li>Teste o botão acima</li>
-          <li>Se tudo funcionar, o problema está na complexidade do código original</li>
-        </ol>
-      </div>
+      <button 
+        onClick={() => console.log('Botão clicado!')}
+        style={{ 
+          padding: '10px', 
+          fontSize: '16px', 
+          backgroundColor: 'yellow',
+          color: 'black',
+          border: 'none',
+          margin: '10px'
+        }}
+      >
+        CLIQUE AQUI PARA TESTAR
+      </button>
     </div>
   );
 };

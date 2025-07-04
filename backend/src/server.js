@@ -5,7 +5,7 @@ const mysql = require('mysql2/promise');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const routes = require('./routes');
+// ❌ REMOVIDO: const routes = require('./routes'); // Esta linha estava causando o erro
 
 // Configuração do banco MySQL (cPanel)
 const dbConfig = {

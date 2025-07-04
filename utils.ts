@@ -2,10 +2,10 @@ import { Quote, QuoteStatus, Product, CompanyInfo, Category, Customer, User, Acc
 
 // --- API Service Layer ---
 
-// ✅ CONFIGURAÇÃO CORRIGIDA PARA PRODUÇÃO
+// ✅ CONFIGURAÇÃO CORRIGIDA PARA PRODUÇÃO NO RENDER
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:3001/api' // Desenvolvimento
-  : 'https://maxcontrol.onrender.com/api'; // ⚠️ SUBSTITUA pela sua URL real do Render
+  : 'https://maxcontrol-backend.onrender.com/api'; // ✅ URL CORRETA DO RENDER
 
 console.log('🔧 API_BASE_URL configurada para:', API_BASE_URL);
 

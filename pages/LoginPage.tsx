@@ -75,7 +75,7 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           </Button>
         </form>
          <p className="mt-4 text-center text-xs text-gray-500">
-            Para o primeiro acesso, use 'admin' como usuário e 'admin' como senha. O backend criará o usuário administrador se não existir.
+            
           </p>
       </div>
     </div>

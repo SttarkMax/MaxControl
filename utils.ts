@@ -151,6 +151,17 @@ export const apiGetSupplierCredits = (): Promise<SupplierCredit[]> => apiFetch('
 export const apiAddSupplierCredit = (credit: Omit<SupplierCredit, 'id'>): Promise<SupplierCredit> => apiFetch('/suppliers/supplier-credits', { method: 'POST', body: JSON.stringify(credit) });
 export const apiDeleteSupplierCredit = (id: string): Promise<null> => apiFetch(`/suppliers/supplier-credits/${id}`, { method: 'DELETE' });
 
+// --- Navigation Helpers ---
+export const navigateTo = (path: string) => {
+  console.log(`🔗 Navegando para: ${path}`);
+  try {
+    // Para HashRouter, use window.location.hash
+    window.location.hash = path;
+    console.log(`✅ Navegação bem-sucedida para: ${path}`);
+  } catch (error) {
+    console.error(`❌ Erro na navegação para ${path}:`, error);
+  }
+};
 
 // --- General Helpers ---
 

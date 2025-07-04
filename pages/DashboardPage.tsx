@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Quote, Product, CompanyInfo, UserAccessLevel } from '../types';
 import BuildingOfficeIcon from '../components/icons/BuildingOfficeIcon';
 import SquaresPlusIcon from '../components/icons/SquaresPlusIcon';
@@ -69,7 +69,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ userName, userRole, openG
           updateChartData(acceptedForChart, selectedYear);
         } else {
           setAvailableYears([new Date().getFullYear()]);
-          updateChartData([], selectedYear); // To show empty chart
+          updateChartData([], selectedYear);
         }
 
       } catch (err: any) {
@@ -111,12 +111,15 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ userName, userRole, openG
   }
 
   const chartOptions: ChartOptions<'bar'> = {
-    responsive: true, maintainAspectRatio: false,
+    responsive: true, 
+    maintainAspectRatio: false,
     plugins: {
       legend: { position: 'top', labels: { color: '#d1d5db', font: { family: 'Inter' } } },
       title: { display: true, text: `Resumo Mensal de Vendas (${selectedYear})`, color: '#f3f4f6', font: { size: 16, family: 'Inter', weight: 600 } },
       tooltip: {
-        backgroundColor: '#1f2937', titleColor: '#f3f4f6', bodyColor: '#d1d5db',
+        backgroundColor: '#1f2937', 
+        titleColor: '#f3f4f6', 
+        bodyColor: '#d1d5db',
         callbacks: { label: (context) => `${context.dataset.label || ''}: ${formatCurrency(context.parsed.y)}` }
       }
     },
@@ -128,6 +131,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ userName, userRole, openG
   
   const yearOptions = availableYears.map(year => ({ value: year, label: year.toString() }));
 
+  const handleNavigate = (path: string) => {
+    console.log(`🔗 Dashboard - Navegando para: ${path}`);
+    navigate(path);
+  };
+
   if (isLoading) return <div className="p-6 text-center"><Spinner size="lg" /></div>;
   if (error) return <div className="p-6 text-center text-red-500 bg-red-900/20 rounded-md">{error}</div>;
 
@@ -137,37 +145,166 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ userName, userRole, openG
       <p className="text-gray-400 mb-8">Bem-vindo(a) ao painel de controle da {companyName}.</p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        <Link to="/products" className="block p-6 bg-gray-800 rounded-xl shadow-lg hover:bg-gray-700/50 transition-all"><div className="flex items-center"><SquaresPlusIcon className="h-10 w-10 text-yellow-500 mr-4" /><div><p className="text-3xl font-bold text-white">{stats.productCount}</p><p className="text-gray-400">Produtos</p></div></div></Link>
-        <Link to="/quotes/all" className="block p-6 bg-gray-800 rounded-xl shadow-lg hover:bg-gray-700/50 transition-all"><div className="flex items-center"><DocumentTextIcon className="h-10 w-10 text-yellow-400 mr-4" /><div><p className="text-3xl font-bold text-white">{stats.quoteCount}</p><p className="text-gray-400">Orçamentos</p></div></div></Link>
-        {userRole === UserAccessLevel.ADMIN && (<Link to="/settings" className="block p-6 bg-gray-800 rounded-xl shadow-lg hover:bg-gray-700/50 transition-all"><div className="flex items-center"><BuildingOfficeIcon className="h-10 w-10 text-yellow-300 mr-4" /><div><p className="text-xl font-semibold text-white">Configurar Empresa</p><p className="text-gray-400">Dados e logo</p></div></div></Link>)}
+        <div 
+          onClick={() => handleNavigate('/products')} 
+          className="block p-6 bg-gray-800 rounded-xl shadow-lg hover:bg-gray-700/50 transition-all cursor-pointer"
+        >
+          <div className="flex items-center">
+            <SquaresPlusIcon className="h-10 w-10 text-yellow-500 mr-4" />
+            <div>
+              <p className="text-3xl font-bold text-white">{stats.productCount}</p>
+              <p className="text-gray-400">Produtos</p>
+            </div>
+          </div>
+        </div>
+        
+        <div 
+          onClick={() => handleNavigate('/quotes/all')} 
+          className="block p-6 bg-gray-800 rounded-xl shadow-lg hover:bg-gray-700/50 transition-all cursor-pointer"
+        >
+          <div className="flex items-center">
+            <DocumentTextIcon className="h-10 w-10 text-yellow-400 mr-4" />
+            <div>
+              <p className="text-3xl font-bold text-white">{stats.quoteCount}</p>
+              <p className="text-gray-400">Orçamentos</p>
+            </div>
+          </div>
+        </div>
+        
+        {userRole === UserAccessLevel.ADMIN && (
+          <div 
+            onClick={() => handleNavigate('/settings')} 
+            className="block p-6 bg-gray-800 rounded-xl shadow-lg hover:bg-gray-700/50 transition-all cursor-pointer"
+          >
+            <div className="flex items-center">
+              <BuildingOfficeIcon className="h-10 w-10 text-yellow-300 mr-4" />
+              <div>
+                <p className="text-xl font-semibold text-white">Configurar Empresa</p>
+                <p className="text-gray-400">Dados e logo</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-gray-800 p-6 rounded-xl shadow-lg mb-8">
-        <div className="flex items-center mb-4"><CheckCircleIcon className="h-6 w-6 text-green-500 mr-2" /><h2 className="text-xl font-semibold text-white">Fechados Este Mês</h2></div>
-        {recentAcceptedQuotes.length > 0 ? (<div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-700">... (table rendering unchanged) ...</table></div>) : (<p className="text-gray-400">Nenhum orçamento fechado este mês.</p>)}
+        <div className="flex items-center mb-4">
+          <CheckCircleIcon className="h-6 w-6 text-green-500 mr-2" />
+          <h2 className="text-xl font-semibold text-white">Fechados Este Mês</h2>
+        </div>
+        {recentAcceptedQuotes.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-700">
+              <thead>
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Orçamento</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Cliente</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Data</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase">Valor</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {recentAcceptedQuotes.map(quote => (
+                  <tr key={quote.id} className="hover:bg-gray-700/50">
+                    <td className="px-6 py-4 text-sm font-medium text-yellow-400">{quote.quoteNumber}</td>
+                    <td className="px-6 py-4 text-sm text-gray-300">{quote.clientName}</td>
+                    <td className="px-6 py-4 text-sm text-gray-400">{new Date(quote.createdAt).toLocaleDateString('pt-BR')}</td>
+                    <td className="px-6 py-4 text-sm text-white text-right font-semibold">{formatCurrency(quote.totalCash)}</td>
+                    <td className="px-6 py-4 text-center">
+                      <Button
+                        onClick={() => openGlobalViewDetailsModal(quote)}
+                        variant="outline"
+                        size="sm"
+                      >
+                        Ver Detalhes
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-400">Nenhum orçamento fechado este mês.</p>
+        )}
       </div>
       
       <div className="bg-gray-800 p-6 rounded-xl shadow-lg mb-8">
-        <div className="flex items-center mb-4"><PencilIcon className="h-6 w-6 text-yellow-500 mr-2" /><h2 className="text-xl font-semibold text-white">Orçamentos em Aberto</h2></div>
-        {draftQuotes.length > 0 ? (<div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-700">... (table rendering unchanged) ...</table></div>) : (<p className="text-gray-400">Nenhum orçamento em aberto.</p>)}
+        <div className="flex items-center mb-4">
+          <PencilIcon className="h-6 w-6 text-yellow-500 mr-2" />
+          <h2 className="text-xl font-semibold text-white">Orçamentos em Aberto</h2>
+        </div>
+        {draftQuotes.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-700">
+              <thead>
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Orçamento</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Cliente</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Data</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase">Valor</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-400 uppercase">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {draftQuotes.map(quote => (
+                  <tr key={quote.id} className="hover:bg-gray-700/50">
+                    <td className="px-6 py-4 text-sm font-medium text-yellow-400">{quote.quoteNumber}</td>
+                    <td className="px-6 py-4 text-sm text-gray-300">{quote.clientName}</td>
+                    <td className="px-6 py-4 text-sm text-gray-400">{new Date(quote.createdAt).toLocaleDateString('pt-BR')}</td>
+                    <td className="px-6 py-4 text-sm text-white text-right font-semibold">{formatCurrency(quote.totalCash)}</td>
+                    <td className="px-6 py-4 text-center">
+                      <Button
+                        onClick={() => openGlobalViewDetailsModal(quote)}
+                        variant="outline"
+                        size="sm"
+                      >
+                        Ver Detalhes
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-gray-400">Nenhum orçamento em aberto.</p>
+        )}
       </div>
       
       <div className="bg-gray-800 p-6 rounded-xl shadow-lg mb-8">
         <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center"><CurrencyDollarIcon className="h-6 w-6 text-yellow-500 mr-2" /><h2 className="text-xl font-semibold text-white">Vendas Realizadas</h2></div>
-          <div className="w-40"><Select label="Ano:" options={yearOptions} value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} /></div>
+          <div className="flex items-center">
+            <CurrencyDollarIcon className="h-6 w-6 text-yellow-500 mr-2" />
+            <h2 className="text-xl font-semibold text-white">Vendas Realizadas</h2>
+          </div>
+          <div className="w-40">
+            <Select 
+              label="Ano:" 
+              options={yearOptions} 
+              value={selectedYear} 
+              onChange={(e) => setSelectedYear(Number(e.target.value))} 
+            />
+          </div>
         </div>
         <div className="h-80 md:h-96 relative">
-          {salesChartData.datasets[0]?.data.some(d => typeof d === 'number' && d > 0) ? (<Bar options={chartOptions} data={salesChartData} />) : (<div className="flex items-center justify-center h-full"><p className="text-gray-500">Nenhuma venda em {selectedYear}.</p></div>)}
+          {salesChartData.datasets[0]?.data.some(d => typeof d === 'number' && d > 0) ? (
+            <Bar options={chartOptions} data={salesChartData} />
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-gray-500">Nenhuma venda em {selectedYear}.</p>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="bg-gray-800 p-6 rounded-xl shadow-lg">
         <h2 className="text-xl font-semibold text-white mb-4">Ações Rápidas</h2>
         <div className="flex flex-wrap gap-4">
-          <Button onClick={() => navigate('/quotes/new')} variant="primary">Novo Orçamento</Button>
-          <Button onClick={() => navigate('/products')} variant="secondary">Ver Produtos</Button>
-          <Button onClick={() => navigate('/customers')} variant="secondary">Ver Clientes</Button>
+          <Button onClick={() => handleNavigate('/quotes/new')} variant="primary">Novo Orçamento</Button>
+          <Button onClick={() => handleNavigate('/products')} variant="secondary">Ver Produtos</Button>
+          <Button onClick={() => handleNavigate('/customers')} variant="secondary">Ver Clientes</Button>
         </div>
       </div>
     </div>

@@ -1,16 +1,16 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { NavItem, UserAccessLevel } from './types';
-import BuildingOfficeIcon from './components/icons/BuildingOfficeIcon';
-import SquaresPlusIcon from './components/icons/SquaresPlusIcon';
-import DocumentTextIcon from './components/icons/DocumentTextIcon';
-import CogIcon from './components/icons/CogIcon';
-import UserGroupIcon from './components/icons/UserGroupIcon';
-import TagIcon from './components/icons/TagIcon'; 
-import ChartBarIcon from './components/icons/ChartBarIcon';
-import TruckIcon from './components/icons/TruckIcon'; 
-import BanknotesIcon from './components/icons/BanknotesIcon';
-import { APP_NAME } from './constants'; 
+import { NavItem, UserAccessLevel } from '../types';
+import BuildingOfficeIcon from './icons/BuildingOfficeIcon';
+import SquaresPlusIcon from './icons/SquaresPlusIcon';
+import DocumentTextIcon from './icons/DocumentTextIcon';
+import CogIcon from './icons/CogIcon';
+import UserGroupIcon from './icons/UserGroupIcon';
+import TagIcon from './icons/TagIcon'; 
+import ChartBarIcon from './icons/ChartBarIcon';
+import TruckIcon from './icons/TruckIcon'; 
+import BanknotesIcon from './icons/BanknotesIcon';
+import { APP_NAME } from '../constants'; 
 
 interface SidebarProps {
   currentRole: UserAccessLevel;
@@ -30,7 +30,6 @@ const allNavItems: NavItem[] = [
   { name: 'Usuários', path: '/users', icon: UserGroupIcon, allowedRoles: [UserAccessLevel.ADMIN] },
   { name: 'Empresa', path: '/settings', icon: CogIcon, allowedRoles: [UserAccessLevel.ADMIN] },
 ];
-
 
 const Sidebar: React.FC<SidebarProps> = ({ currentRole, isOpen, setIsOpen }) => {
   const availableNavItems = allNavItems.filter(item => 

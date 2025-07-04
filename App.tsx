@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import LoginPage from './pages/LoginPage';
@@ -21,7 +21,7 @@ import { UserAccessLevel, CompanyInfo, Quote, LoggedInUser } from './types';
 import { apiLogin, apiLogout, apiCheckAuth, apiGetCompanyInfo } from './utils';
 import Spinner from './components/common/Spinner';
 
-// Componente para debug de rotas
+// Componente de debug de rotas
 const LocationDebug: React.FC = () => {
   const location = useLocation();
   
@@ -40,6 +40,7 @@ const LocationDebug: React.FC = () => {
 // Componente de erro para rotas não encontradas
 const NotFoundPage: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   
   return (
     <div className="p-6 text-center bg-gray-800 rounded-lg mx-4">
@@ -52,10 +53,7 @@ const NotFoundPage: React.FC = () => {
         <p>Search: {location.search || 'nenhum'}</p>
       </div>
       <button 
-        onClick={() => {
-          console.log('🏠 Redirecionando para home');
-          window.location.hash = '/';
-        }}
+        onClick={() => navigate('/')}
         className="bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded font-semibold"
       >
         Voltar ao Início
@@ -88,7 +86,6 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    // Log informações do ambiente
     console.log('🌐 Ambiente:', {
       hostname: window.location.hostname,
       href: window.location.href,
@@ -104,10 +101,9 @@ const App: React.FC = () => {
             if (user) {
                 console.log('✅ Usuário autenticado:', user.username, 'Role:', user.role);
                 
-                // User is authenticated, now get company info.
                 const companyInfo = await apiGetCompanyInfo().catch(err => {
                     console.error("❌ Failed to fetch company info, but continuing.", err);
-                    return null; // Don't let company info failure block login
+                    return null;
                 });
                 
                 setCurrentUser(user);
@@ -143,7 +139,6 @@ const App: React.FC = () => {
         setCurrentUser(user);
         setIsAuthenticated(true);
         
-        // Fetch company details after successful login
         apiGetCompanyInfo()
           .then(info => {
             setCompanyDetails(info);
@@ -172,9 +167,6 @@ const App: React.FC = () => {
       setCurrentUser(null);
       setIsAuthenticated(false);
       setCompanyDetails(null);
-      
-      // Forçar redirecionamento
-      window.location.hash = '/login';
     }
   };
   
@@ -243,7 +235,7 @@ const App: React.FC = () => {
                 <h2 className="text-2xl font-bold text-white mb-4">Acesso Negado</h2>
                 <p className="text-gray-400 mb-4">Você precisa fazer login para acessar esta página.</p>
                 <button 
-                  onClick={() => window.location.hash = '/login'}
+                  onClick={() => {window.location.hash = '/login'}}
                   className="bg-yellow-500 hover:bg-yellow-600 text-black px-4 py-2 rounded font-semibold"
                 >
                   Ir para Login
@@ -268,6 +260,7 @@ const App: React.FC = () => {
               <Sidebar currentRole={currentUser.role} isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
               <main className="flex-1 p-4 md:p-6 bg-gray-950 md:ml-64 overflow-y-auto"> 
                 <Routes>
+                  {/* Redirecionar /login para / quando autenticado */}
                   <Route path="/login" element={<Navigate to="/" replace />} />
                   
                   {/* Rota principal */}

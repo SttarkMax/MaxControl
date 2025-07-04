@@ -6,9 +6,6 @@ const mysql = require('mysql2/promise');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const routes = require('./routes');
-app.use(routes);
-
-
 
 // Configuração do banco MySQL (cPanel)
 const dbConfig = {
@@ -55,7 +52,7 @@ const testConnection = async () => {
 console.log('🌍 NODE_ENV:', process.env.NODE_ENV);
 console.log('🌍 Configurando CORS...');
 
-// Lista de origens permitidas
+// Lista de origens permitidas - ATUALIZADA
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000', 
@@ -67,6 +64,7 @@ const allowedOrigins = [
   'http://www.maxcontrol.f13design.com.br'
 ];
 
+// CONFIGURAÇÃO CORS SIMPLIFICADA E CORRIGIDA
 const corsOptions = {
   origin: function (origin, callback) {
     console.log('🔍 CORS origin recebida:', origin);
@@ -80,17 +78,17 @@ const corsOptions = {
     // Verificar se a origin está na lista permitida
     if (allowedOrigins.includes(origin)) {
       console.log('✅ CORS: Origin permitida:', origin);
-      callback(null, true);
-    } else {
-      console.log('❌ CORS: Origin BLOQUEADA:', origin);
-      // Em desenvolvimento, permitir qualquer origin
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('🔧 CORS: Permitindo em desenvolvimento');
-        callback(null, true);
-      } else {
-        callback(new Error('Bloqueado pelo CORS'), false);
-      }
+      return callback(null, true);
     }
+    
+    // Em desenvolvimento, permitir qualquer origin
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🔧 CORS: Permitindo em desenvolvimento');
+      return callback(null, true);
+    }
+    
+    console.log('❌ CORS: Origin BLOQUEADA:', origin);
+    return callback(new Error('Não permitido pelo CORS'), false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -102,40 +100,11 @@ const corsOptions = {
     'Origin',
     'Access-Control-Allow-Credentials'
   ],
-  optionsSuccessStatus: 200 // Para suportar navegadores legados
+  optionsSuccessStatus: 200
 };
 
-// Aplicar CORS antes de tudo
+// Aplicar CORS ANTES de qualquer outro middleware
 app.use(cors(corsOptions));
-
-// Middleware para logs detalhados
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const method = req.method;
-  const path = req.path;
-  
-  console.log(`🌐 ${method} ${path} from ${origin || 'no-origin'}`);
-  
-  // Headers CORS manuais como fallback
-  if (origin && allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    // Para requisições sem origin
-    res.header('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin');
-  
-  // Responder OPTIONS imediatamente
-  if (method === 'OPTIONS') {
-    console.log('✅ Respondendo OPTIONS preflight');
-    return res.status(200).end();
-  }
-  
-  next();
-});
 
 // Middleware básico
 app.use(express.json({ limit: '10mb' }));
@@ -725,6 +694,394 @@ app.delete('/api/customers/:id', async (req, res) => {
   }
 });
 
+// ===== QUOTES ROUTES =====
+app.get('/api/quotes', async (req, res) => {
+  try {
+    const [quotes] = await pool.execute('SELECT * FROM quotes ORDER BY createdAt DESC');
+    
+    // Para cada quote, buscar os itens
+    for (let quote of quotes) {
+      const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [quote.id]);
+      quote.items = items;
+      
+      // Buscar informações da empresa (snapshot)
+      const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
+      quote.companyInfoSnapshot = companyInfo[0] || { name: 'MaxControl', address: '', phone: '', email: '' };
+    }
+    
+    res.json(quotes);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [quotes] = await pool.execute('SELECT * FROM quotes WHERE id = ?', [id]);
+    
+    if (quotes.length === 0) {
+      return res.status(404).json({ error: 'Orçamento não encontrado' });
+    }
+    
+    const quote = quotes[0];
+    
+    // Buscar itens do orçamento
+    const [items] = await pool.execute('SELECT * FROM quote_items WHERE quoteId = ?', [id]);
+    quote.items = items;
+    
+    // Buscar informações da empresa (snapshot)
+    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
+    quote.companyInfoSnapshot = companyInfo[0] || { name: 'MaxControl', address: '', phone: '', email: '' };
+    
+    res.json(quote);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/quotes', async (req, res) => {
+  try {
+    const quote = req.body;
+    const id = generateId();
+    const quoteNumber = `ORC-${Date.now()}`;
+    
+    // Buscar informações da empresa para snapshot
+    const [companyInfo] = await pool.execute('SELECT * FROM company_info LIMIT 1');
+    const companySnapshot = companyInfo[0] || { name: 'MaxControl', address: '', phone: '', email: '' };
+    
+    // Inserir o orçamento
+    await pool.execute(`
+      INSERT INTO quotes (
+        id, quoteNumber, customerId, clientName, clientContact, subtotal, 
+        discountType, discountValue, discountAmountCalculated, subtotalAfterDiscount,
+        totalCash, totalCard, downPaymentApplied, selectedPaymentMethod, 
+        paymentDate, deliveryDeadline, status, notes, salespersonUsername, 
+        salespersonFullName, createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      id, quoteNumber, quote.customerId, quote.clientName, quote.clientContact, quote.subtotal,
+      quote.discountType, quote.discountValue, quote.discountAmountCalculated, quote.subtotalAfterDiscount,
+      quote.totalCash, quote.totalCard, quote.downPaymentApplied, quote.selectedPaymentMethod,
+      quote.paymentDate, quote.deliveryDeadline, quote.status, quote.notes, 
+      quote.salespersonUsername, quote.salespersonFullName, new Date().toISOString()
+    ]);
+    
+    // Inserir os itens do orçamento
+    for (let item of quote.items) {
+      const itemId = generateId();
+      await pool.execute(`
+        INSERT INTO quote_items (
+          id, quoteId, productId, productName, quantity, unitPrice, totalPrice,
+          pricingModel, width, height, itemCountForAreaCalc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        itemId, id, item.productId, item.productName, item.quantity, item.unitPrice, 
+        item.totalPrice, item.pricingModel, item.width, item.height, item.itemCountForAreaCalc
+      ]);
+    }
+    
+    const responseQuote = {
+      id,
+      quoteNumber,
+      ...quote,
+      companyInfoSnapshot: companySnapshot,
+      createdAt: new Date().toISOString()
+    };
+    
+    res.json(responseQuote);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const quote = req.body;
+    
+    // Atualizar o orçamento
+    await pool.execute(`
+      UPDATE quotes SET 
+        customerId = ?, clientName = ?, clientContact = ?, subtotal = ?,
+        discountType = ?, discountValue = ?, discountAmountCalculated = ?, subtotalAfterDiscount = ?,
+        totalCash = ?, totalCard = ?, downPaymentApplied = ?, selectedPaymentMethod = ?,
+        paymentDate = ?, deliveryDeadline = ?, status = ?, notes = ?,
+        salespersonUsername = ?, salespersonFullName = ?
+      WHERE id = ?
+    `, [
+      quote.customerId, quote.clientName, quote.clientContact, quote.subtotal,
+      quote.discountType, quote.discountValue, quote.discountAmountCalculated, quote.subtotalAfterDiscount,
+      quote.totalCash, quote.totalCard, quote.downPaymentApplied, quote.selectedPaymentMethod,
+      quote.paymentDate, quote.deliveryDeadline, quote.status, quote.notes,
+      quote.salespersonUsername, quote.salespersonFullName, id
+    ]);
+    
+    // Remover itens antigos e inserir novos
+    await pool.execute('DELETE FROM quote_items WHERE quoteId = ?', [id]);
+    
+    for (let item of quote.items) {
+      const itemId = generateId();
+      await pool.execute(`
+        INSERT INTO quote_items (
+          id, quoteId, productId, productName, quantity, unitPrice, totalPrice,
+          pricingModel, width, height, itemCountForAreaCalc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        itemId, id, item.productId, item.productName, item.quantity, item.unitPrice,
+        item.totalPrice, item.pricingModel, item.width, item.height, item.itemCountForAreaCalc
+      ]);
+    }
+    
+    res.json(quote);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/quotes/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // O CASCADE na FK já vai deletar os itens
+    await pool.execute('DELETE FROM quotes WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== USERS ROUTES =====
+app.get('/api/users', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT id, username, fullName, role FROM users');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const user = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO users (id, username, fullName, password, role)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, user.username, user.fullName, user.password, user.role]);
+    
+    res.json({ id, ...user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.body;
+    
+    // Se não forneceu senha, não atualizar a senha
+    if (user.password) {
+      await pool.execute(`
+        UPDATE users SET username = ?, fullName = ?, password = ?, role = ? WHERE id = ?
+      `, [user.username, user.fullName, user.password, user.role, id]);
+    } else {
+      await pool.execute(`
+        UPDATE users SET username = ?, fullName = ?, role = ? WHERE id = ?
+      `, [user.username, user.fullName, user.role, id]);
+    }
+    
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM users WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ACCOUNTS PAYABLE ROUTES =====
+app.get('/api/accounts-payable', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM accounts_payable ORDER BY dueDate');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/accounts-payable', async (req, res) => {
+  try {
+    const entry = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO accounts_payable (id, name, amount, dueDate, isPaid, notes, seriesId, totalInstallmentsInSeries, installmentNumberOfSeries)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [id, entry.name, entry.amount, entry.dueDate, entry.isPaid || false, entry.notes, entry.seriesId, entry.totalInstallmentsInSeries, entry.installmentNumberOfSeries]);
+    
+    res.json({ id, ...entry, createdAt: new Date().toISOString() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/accounts-payable/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const entry = req.body;
+    
+    await pool.execute(`
+      UPDATE accounts_payable SET name = ?, amount = ?, dueDate = ?, isPaid = ?, notes = ? WHERE id = ?
+    `, [entry.name, entry.amount, entry.dueDate, entry.isPaid, entry.notes, id]);
+    
+    res.json(entry);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/accounts-payable/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM accounts_payable WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SUPPLIERS ROUTES =====
+app.get('/api/suppliers', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM suppliers ORDER BY name');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/suppliers', async (req, res) => {
+  try {
+    const supplier = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO suppliers (id, name, cnpj, phone, email, address, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [id, supplier.name, supplier.cnpj, supplier.phone, supplier.email, supplier.address, supplier.notes]);
+    
+    res.json({ id, ...supplier });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/suppliers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const supplier = req.body;
+    
+    await pool.execute(`
+      UPDATE suppliers SET name = ?, cnpj = ?, phone = ?, email = ?, address = ?, notes = ? WHERE id = ?
+    `, [supplier.name, supplier.cnpj, supplier.phone, supplier.email, supplier.address, supplier.notes, id]);
+    
+    res.json(supplier);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/suppliers/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM suppliers WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SUPPLIER DEBTS ROUTES =====
+app.get('/api/suppliers/debts', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM supplier_debts ORDER BY dateAdded DESC');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/suppliers/debts', async (req, res) => {
+  try {
+    const debt = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO supplier_debts (id, supplierId, description, totalAmount, dateAdded)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, debt.supplierId, debt.description, debt.totalAmount, debt.dateAdded]);
+    
+    res.json({ id, ...debt });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/suppliers/debts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM supplier_debts WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SUPPLIER CREDITS ROUTES =====
+app.get('/api/suppliers/supplier-credits', async (req, res) => {
+  try {
+    const [rows] = await pool.execute('SELECT * FROM supplier_credits ORDER BY date DESC');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/suppliers/supplier-credits', async (req, res) => {
+  try {
+    const credit = req.body;
+    const id = generateId();
+    
+    await pool.execute(`
+      INSERT INTO supplier_credits (id, supplierId, amount, date, description)
+      VALUES (?, ?, ?, ?, ?)
+    `, [id, credit.supplierId, credit.amount, credit.date, credit.description]);
+    
+    res.json({ id, ...credit });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/suppliers/supplier-credits/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.execute('DELETE FROM supplier_credits WHERE id = ?', [id]);
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Debug endpoint
 app.get('/api/debug', (req, res) => {
   res.json({
@@ -802,6 +1159,7 @@ const startServer = async () => {
       console.log(`🔗 Health: http://localhost:${PORT}/health`);
       console.log(`🔐 Auth: http://localhost:${PORT}/api/auth/me`);
       console.log(`🔍 Debug: http://localhost:${PORT}/api/debug`);
+      console.log(`🌍 CORS configurado para:`, allowedOrigins);
     });
 
     process.on('SIGTERM', () => {

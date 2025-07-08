@@ -19,11 +19,11 @@ const Button: React.FC<ButtonProps> = ({
   disabled,
   ...props 
 }) => {
-  const baseStyles = "font-semibold rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 transition ease-in-out duration-150 flex items-center justify-center";
+  const baseStyles = "font-semibold rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-black transition ease-in-out duration-150 flex items-center justify-center";
 
   const variantStyles = {
     primary: "bg-yellow-500 hover:bg-yellow-600 text-black focus:ring-yellow-400",
-    secondary: "bg-gray-700 hover:bg-gray-600 text-white focus:ring-gray-500 border border-gray-600",
+    secondary: "bg-[#282828] hover:bg-[#3a3a3a] text-white focus:ring-yellow-400 border border-[#282828]",
     danger: "bg-red-600 hover:bg-red-700 text-white focus:ring-red-500",
     success: "bg-green-600 hover:bg-green-700 text-white focus:ring-green-500",
     warning: "bg-yellow-500 hover:bg-yellow-600 text-black focus:ring-yellow-400", // Using theme's yellow

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { User, UserAccessLevel, LoggedInUser } from '../types';
 import Button from '../components/common/Button';
@@ -8,45 +7,44 @@ import UserGroupIcon from '../components/icons/UserGroupIcon';
 import PlusIcon from '../components/icons/PlusIcon';
 import TrashIcon from '../components/icons/TrashIcon';
 import PencilIcon from '../components/icons/PencilIcon';
-import { apiGetUsers, apiSaveUser, apiDeleteUser } from '../utils';
+import { api } from '../services/apiService';
 import Spinner from '../components/common/Spinner';
 
 const initialUserState: Omit<User, 'id'> = {
   username: '',
   fullName: '',
-  password: '', 
+  password: '',
   role: UserAccessLevel.SALES,
 };
 
 interface UsersPageProps {
-  loggedInUser: LoggedInUser; 
+  loggedInUser: LoggedInUser;
 }
 
 const UsersPage: React.FC<UsersPageProps> = ({ loggedInUser }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [currentUserForm, setCurrentUserForm] = useState<Partial<User>>(initialUserState);
+  const [currentUserForm, setCurrentUserForm] = useState<Omit<User, 'id'> & { id?: string }>(initialUserState);
   const [isEditing, setIsEditing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const loadUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async () => {
     setIsLoading(true);
-    setError(null);
     try {
-      const data = await apiGetUsers();
+      const data = await api.get('/api/users');
       setUsers(data);
-    } catch (err: any) {
-      setError(err.message || 'Falha ao carregar usuários.');
+    } catch (error) {
+      console.error("Failed to fetch users:", error);
+      alert("Falha ao carregar usuários.");
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+    fetchUsers();
+  }, [fetchUsers]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -60,9 +58,7 @@ const UsersPage: React.FC<UsersPageProps> = ({ loggedInUser }) => {
   };
 
   const openModalForEdit = (user: User) => {
-    // Don't include password when populating form for editing
-    const { password, ...userForForm } = user;
-    setCurrentUserForm(userForForm);
+    setCurrentUserForm({ ...user, password: '' }); // Clear password field for editing
     setIsEditing(true);
     setIsModalOpen(true);
   };
@@ -74,23 +70,32 @@ const UsersPage: React.FC<UsersPageProps> = ({ loggedInUser }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUserForm.username?.trim()) { alert("Nome de usuário é obrigatório."); return; }
-    if (!currentUserForm.fullName?.trim()) { alert("Nome completo é obrigatório."); return; }
-    if (!isEditing && !currentUserForm.password?.trim()) { alert("Senha é obrigatória para novos usuários."); return; }
-
+    if (!currentUserForm.username.trim() || !currentUserForm.fullName?.trim()) {
+        alert("Nome de usuário e nome completo são obrigatórios.");
+        return;
+    }
+    if (!isEditing && !currentUserForm.password?.trim()) {
+        alert("A senha é obrigatória para novos usuários.");
+        return;
+    }
     const adminUsers = users.filter(u => u.role === UserAccessLevel.ADMIN);
-    if (isEditing && currentUserForm.id === loggedInUser.id && currentUserForm.role !== UserAccessLevel.ADMIN && adminUsers.length === 1) {
-        alert("Você não pode remover seu próprio acesso de administrador, pois é o único existente.");
+    if (isEditing && currentUserForm.id === loggedInUser.id && currentUserForm.role !== UserAccessLevel.ADMIN && adminUsers.length <= 1) {
+        alert("Você não pode remover seu próprio acesso de administrador se for o único.");
         return;
     }
 
     setIsSubmitting(true);
     try {
-      await apiSaveUser(currentUserForm);
+      if (isEditing && currentUserForm.id) {
+        await api.put(`/api/users/${currentUserForm.id}`, currentUserForm);
+      } else {
+        await api.post('/api/users', currentUserForm);
+      }
+      await fetchUsers();
       closeModal();
-      await loadUsers();
-    } catch(err: any) {
-      alert(`Erro ao salvar usuário: ${err.message}`);
+    } catch (error) {
+      console.error("Failed to save user:", error);
+      alert(`Erro ao salvar usuário: ${error}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -103,22 +108,22 @@ const UsersPage: React.FC<UsersPageProps> = ({ loggedInUser }) => {
     }
     if (window.confirm('Tem certeza que deseja excluir este usuário?')) {
       try {
-        await apiDeleteUser(userId);
-        await loadUsers();
-      } catch (err: any) {
-        alert(`Erro ao excluir usuário: ${err.message}`);
+        await api.delete(`/api/users/${userId}`);
+        await fetchUsers();
+      } catch (error) {
+        console.error("Failed to delete user:", error);
+        alert(`Erro ao excluir usuário: ${error}`);
       }
     }
   };
-  
+
   const roleOptions = [
     { value: UserAccessLevel.ADMIN, label: 'Administrador' },
     { value: UserAccessLevel.SALES, label: 'Vendas' },
     { value: UserAccessLevel.VIEWER, label: 'Visualização' },
   ];
 
-  const getRoleLabelAndStyle = (roleValue?: UserAccessLevel) => {
-    if(!roleValue) return { label: 'N/A', style: 'text-gray-400' };
+  const getRoleLabelAndStyle = (roleValue: UserAccessLevel): { label: string, style: string } => {
     const roleInfo = roleOptions.find(opt => opt.value === roleValue);
     const label = roleInfo?.label || roleValue;
     let style = 'text-gray-300';
@@ -127,8 +132,9 @@ const UsersPage: React.FC<UsersPageProps> = ({ loggedInUser }) => {
     return { label, style };
   };
 
-  if (isLoading) return <div className="p-6 text-center"><Spinner size="lg" /></div>;
-  if (error) return <div className="p-6 text-center text-red-500 bg-red-900/20 rounded-md">{error}</div>;
+  if (isLoading) {
+    return <div className="p-6 flex justify-center items-center"><Spinner size="lg" /></div>;
+  }
 
   return (
     <div className="p-6 text-gray-300">
@@ -143,36 +149,33 @@ const UsersPage: React.FC<UsersPageProps> = ({ loggedInUser }) => {
       </div>
 
       {users.length === 0 ? (
-        <div className="text-center py-10 bg-gray-800 shadow-xl rounded-lg">
+        <div className="text-center py-10 bg-[#1d1d1d] shadow-xl rounded-lg">
           <UserGroupIcon className="mx-auto h-12 w-12 text-gray-500" />
           <h3 className="mt-2 text-sm font-medium text-white">Nenhum usuário cadastrado</h3>
           <p className="mt-1 text-sm text-gray-400">Comece adicionando um novo usuário ao sistema.</p>
-          <div className="mt-6">
-            <Button onClick={openModalForNew} variant="primary" iconLeft={<PlusIcon className="w-4 h-4"/>}>Adicionar Usuário</Button>
-          </div>
         </div>
       ) : (
-        <div className="bg-gray-800 shadow-xl rounded-lg overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-700">
-            <thead className="bg-gray-700">
+        <div className="bg-[#1d1d1d] shadow-xl rounded-lg overflow-x-auto">
+          <table className="min-w-full divide-y divide-[#282828]">
+            <thead className="bg-[#282828]">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nome Completo</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nome de Usuário</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nível de Acesso</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Ações</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Nome Completo</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Nome de Usuário</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Nível de Acesso</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
-            <tbody className="bg-gray-800 divide-y divide-gray-700">
+            <tbody className="bg-black divide-y divide-[#282828]">
               {users.map(user => {
                 const { label: roleLabel, style: roleStyle } = getRoleLabelAndStyle(user.role);
                 return (
-                  <tr key={user.id} className="hover:bg-gray-700/50">
+                  <tr key={user.id} className="hover:bg-[#282828]">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{user.fullName || user.username}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{user.username}</td>
                     <td className={`px-6 py-4 whitespace-nowrap text-sm ${roleStyle}`}>{roleLabel}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex items-center space-x-2">
-                      <Button onClick={() => openModalForEdit(user)} variant="secondary" size="sm" iconLeft={<PencilIcon className="w-4 h-4"/>} />
-                      <Button onClick={() => handleDelete(user.id)} variant="danger" size="sm" iconLeft={<TrashIcon className="w-4 h-4"/>} disabled={user.id === loggedInUser.id} />
+                      <Button onClick={() => openModalForEdit(user)} variant="secondary" size="sm" iconLeft={<PencilIcon className="w-4 h-4"/>}>Editar</Button>
+                      <Button onClick={() => handleDelete(user.id)} variant="danger" size="sm" iconLeft={<TrashIcon className="w-4 h-4"/>} disabled={user.id === loggedInUser.id}>Excluir</Button>
                     </td>
                   </tr>
                 );
@@ -184,18 +187,31 @@ const UsersPage: React.FC<UsersPageProps> = ({ loggedInUser }) => {
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-lg">
+          <div className="bg-[#1d1d1d] p-6 md:p-8 rounded-lg shadow-xl w-full max-w-lg text-white">
             <h3 className="text-xl font-semibold mb-6 text-white">{isEditing ? 'Editar Usuário' : 'Adicionar Novo Usuário'}</h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <Input label="Nome Completo" name="fullName" value={currentUserForm.fullName || ''} onChange={handleInputChange} required />
-              <Input label="Nome de Usuário" name="username" value={currentUserForm.username || ''} onChange={handleInputChange} required disabled={isEditing} />
-              <Input label={isEditing ? "Nova Senha (deixe em branco para não alterar)" : "Senha"} name="password" type="password" value={currentUserForm.password || ''} onChange={handleInputChange} required={!isEditing} />
-              <Select label="Nível de Acesso" name="role" options={roleOptions} value={currentUserForm.role} onChange={handleInputChange} required 
-                disabled={isEditing && currentUserForm.id === loggedInUser.id && users.filter(u => u.role === UserAccessLevel.ADMIN).length === 1}
+              <Input label="Nome de Usuário" name="username" value={currentUserForm.username} onChange={handleInputChange} required />
+              <Input
+                label={isEditing ? "Nova Senha (deixe em branco para não alterar)" : "Senha"}
+                name="password"
+                type="password"
+                value={currentUserForm.password || ''}
+                onChange={handleInputChange}
+                required={!isEditing}
+                placeholder={isEditing ? "Digite a nova senha aqui" : "Mínimo 6 caracteres"}
+              />
+              <Select
+                label="Nível de Acesso"
+                name="role"
+                options={roleOptions}
+                value={currentUserForm.role}
+                onChange={handleInputChange}
+                required
               />
               <div className="flex justify-end space-x-3 pt-4">
-                <Button type="button" variant="secondary" onClick={closeModal} disabled={isSubmitting}>Cancelar</Button>
-                <Button type="submit" variant="primary" isLoading={isSubmitting}>{isSubmitting ? "Salvando..." : (isEditing ? 'Salvar' : 'Adicionar')}</Button>
+                <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
+                <Button type="submit" variant="primary" isLoading={isSubmitting}>{isSubmitting ? "Salvando..." : (isEditing ? 'Salvar Alterações' : 'Adicionar Usuário')}</Button>
               </div>
             </form>
           </div>

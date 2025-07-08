@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Quote, PricingModel } from '../types';
 import Button from './common/Button';
@@ -246,8 +245,8 @@ const ViewQuoteDetailsModal: React.FC<ViewQuoteDetailsModalProps> = ({ isOpen, o
 
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-80 overflow-y-auto h-full w-full z-[60] flex items-center justify-center p-4">
-      <div className="bg-gray-800 p-6 md:p-8 rounded-lg shadow-2xl w-full max-w-3xl max-h-[95vh] overflow-y-auto text-gray-300">
+    <div className="fixed inset-0 bg-black bg-opacity-90 overflow-y-auto h-full w-full z-[60] flex items-center justify-center p-4">
+      <div className="bg-black p-6 md:p-8 rounded-lg shadow-2xl w-full max-w-3xl max-h-[95vh] overflow-y-auto text-white border border-[#282828]">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center">
             <DocumentTextIcon className="h-7 w-7 text-yellow-500 mr-3" />
@@ -258,14 +257,14 @@ const ViewQuoteDetailsModal: React.FC<ViewQuoteDetailsModalProps> = ({ isOpen, o
 
         {/* Header Info */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-sm">
-          <div className="bg-gray-700 p-4 rounded-md">
-            <p className="font-semibold text-gray-100">Número: <span className="text-yellow-400">{quoteNumber}</span></p>
+          <div className="bg-[#1d1d1d] p-4 rounded-md">
+            <p className="font-semibold text-white">Número: <span className="text-yellow-400">{quoteNumber}</span></p>
             <p>Status: <span className={`font-semibold ${status === 'accepted' || status === 'converted_to_order' ? 'text-green-400' : status === 'draft' ? 'text-yellow-400' : 'text-gray-400'}`}>{translatedStatus}</span></p>
             <p>Criado em: {new Date(createdAt).toLocaleString('pt-BR')}</p>
             {salespersonFullName && <p>Vendedor: {salespersonFullName}</p>}
           </div>
-          <div className="bg-gray-700 p-4 rounded-md">
-            <p className="font-semibold text-gray-100">{companyInfoSnapshot.name}</p>
+          <div className="bg-[#1d1d1d] p-4 rounded-md">
+            <p className="font-semibold text-white">{companyInfoSnapshot.name}</p>
             <p>{companyInfoSnapshot.phone} | {companyInfoSnapshot.email}</p>
             <p>{companyInfoSnapshot.address}</p>
             {companyInfoSnapshot.cnpj && <p>CNPJ: {companyInfoSnapshot.cnpj}</p>}
@@ -273,18 +272,18 @@ const ViewQuoteDetailsModal: React.FC<ViewQuoteDetailsModalProps> = ({ isOpen, o
         </div>
 
         {/* Client Info */}
-        <div className="mb-6 bg-gray-700 p-4 rounded-md text-sm">
-            <h4 className="font-semibold text-lg text-gray-100 mb-2">Cliente</h4>
+        <div className="mb-6 bg-[#1d1d1d] p-4 rounded-md text-sm">
+            <h4 className="font-semibold text-lg text-white mb-2">Cliente</h4>
             <p>Nome: {clientName}</p>
             {clientContact && <p>Contato: {clientContact}</p>}
         </div>
 
         {/* Items Table */}
         <div className="mb-6">
-          <h4 className="font-semibold text-lg text-gray-100 mb-2">Itens</h4>
-          <div className="overflow-x-auto border border-gray-600 rounded-md">
-            <table className="min-w-full divide-y divide-gray-600">
-              <thead className="bg-gray-700">
+          <h4 className="font-semibold text-lg text-white mb-2">Itens</h4>
+          <div className="overflow-x-auto border border-[#282828] rounded-md">
+            <table className="min-w-full divide-y divide-[#282828]">
+              <thead className="bg-[#282828]">
                 <tr>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">Produto</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">Qtd./Detalhes</th>
@@ -292,7 +291,7 @@ const ViewQuoteDetailsModal: React.FC<ViewQuoteDetailsModalProps> = ({ isOpen, o
                   <th className="px-3 py-2 text-right text-xs font-medium text-gray-400 uppercase">Total Item</th>
                 </tr>
               </thead>
-              <tbody className="bg-gray-800 divide-y divide-gray-600">
+              <tbody className="bg-black divide-y divide-[#282828]">
                 {items.map((item, index) => {
                     let qtyDisplay = '';
                     if (item.pricingModel === PricingModel.PER_SQUARE_METER) {
@@ -312,10 +311,10 @@ const ViewQuoteDetailsModal: React.FC<ViewQuoteDetailsModalProps> = ({ isOpen, o
                     }
                   return (
                   <tr key={index}>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{item.productName}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-300">{qtyDisplay}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-300 text-right">{formatCurrency(item.unitPrice)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-300 text-right">{formatCurrency(item.totalPrice)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-white">{item.productName}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{qtyDisplay}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200 text-right">{formatCurrency(item.unitPrice)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200 text-right">{formatCurrency(item.totalPrice)}</td>
                   </tr>
                 )})}
               </tbody>
@@ -324,8 +323,8 @@ const ViewQuoteDetailsModal: React.FC<ViewQuoteDetailsModalProps> = ({ isOpen, o
         </div>
 
         {/* Totals Section */}
-        <div className="mb-6 bg-gray-700 p-4 rounded-md text-sm">
-            <h4 className="font-semibold text-lg text-gray-100 mb-2">Totais</h4>
+        <div className="mb-6 bg-[#1d1d1d] p-4 rounded-md text-sm">
+            <h4 className="font-semibold text-lg text-white mb-2">Totais</h4>
             <div className="space-y-1">
                 <div className="flex justify-between"><span>Subtotal (base):</span><span>{formatCurrency(subtotal)}</span></div>
                 {discountAmountCalculated > 0 && (
@@ -351,14 +350,14 @@ const ViewQuoteDetailsModal: React.FC<ViewQuoteDetailsModalProps> = ({ isOpen, o
                 </div>
 
                 {creditActuallyAppliedToThisQuote > 0 && (
-                     <div className="flex justify-between text-blue-400">
+                     <div className="flex justify-between text-green-400">
                         <span>Sinal/Haver Utilizado:</span>
                         <span>- {formatCurrency(creditActuallyAppliedToThisQuote)}</span>
                     </div>
                 )}
                 <hr className="my-1 border-gray-600"/>
                 <div className="flex justify-between text-lg font-bold">
-                    <span className="text-gray-100">VALOR FINAL PAGO/A PAGAR:</span>
+                    <span className="text-white">VALOR FINAL PAGO/A PAGAR:</span>
                     <span className="text-yellow-400">{formatCurrency(finalAmountPaidOrDue)}</span>
                 </div>
                  {selectedPaymentMethod?.toLowerCase().includes('cartão') && cardInstallmentText && (
@@ -371,15 +370,15 @@ const ViewQuoteDetailsModal: React.FC<ViewQuoteDetailsModalProps> = ({ isOpen, o
 
         {/* Payment and Delivery Info */}
         {(selectedPaymentMethod || paymentDate || deliveryDeadline || notes) && (
-            <div className="mb-6 bg-gray-700 p-4 rounded-md text-sm">
-                 <h4 className="font-semibold text-lg text-gray-100 mb-2">Pagamento e Entrega</h4>
+            <div className="mb-6 bg-[#1d1d1d] p-4 rounded-md text-sm">
+                 <h4 className="font-semibold text-lg text-white mb-2">Pagamento e Entrega</h4>
                 {selectedPaymentMethod && <p>Forma de Pagamento: {selectedPaymentMethod}{cardInstallmentText}</p>}
                 {paymentDate && <p>Data de Pagamento: {new Date(paymentDate + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
                 {deliveryDeadline && <p>Prazo de Entrega: {new Date(deliveryDeadline + 'T00:00:00').toLocaleDateString('pt-BR')}</p>}
                 {notes && (
                     <div className="mt-2">
-                        <p className="font-semibold text-gray-100">Observações:</p>
-                        <p className="whitespace-pre-wrap text-gray-300">{notes}</p>
+                        <p className="font-semibold text-white">Observações:</p>
+                        <p className="whitespace-pre-wrap text-gray-200">{notes}</p>
                     </div>
                 )}
             </div>

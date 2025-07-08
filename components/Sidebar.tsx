@@ -51,7 +51,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRole, isOpen, setIsOpen }) => 
         aria-hidden="true"
       ></div>
 
-      <aside className={`w-64 bg-black text-gray-200 min-h-screen p-4 flex flex-col fixed top-0 left-0 pt-20 z-40 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`w-64 bg-black text-white min-h-screen p-4 flex flex-col fixed top-0 left-0 pt-20 z-40 transform transition-transform duration-300 ease-in-out md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <nav>
           <ul>
             {availableNavItems.map((item) => (
@@ -64,12 +64,12 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRole, isOpen, setIsOpen }) => 
                     `flex items-center py-2.5 px-4 rounded-md transition duration-200 group
                     ${isActive 
                         ? 'bg-yellow-500 text-black' 
-                        : 'text-gray-400 hover:bg-gray-800 hover:text-yellow-500'}`
+                        : 'text-gray-300 hover:bg-[#1d1d1d] hover:text-yellow-500'}`
                   }
                 >
                   {({ isActive }) => (
                     <>
-                      <item.icon className={`w-5 h-5 mr-3 transition-colors duration-200 ${isActive ? 'text-black' : 'text-gray-400 group-hover:text-yellow-500'}`} />
+                      <item.icon className={`w-5 h-5 mr-3 transition-colors duration-200 ${isActive ? 'text-black' : 'text-gray-300 group-hover:text-yellow-500'}`} />
                       <span>{item.name}</span>
                     </>
                   )}
@@ -78,7 +78,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentRole, isOpen, setIsOpen }) => 
             ))}
           </ul>
         </nav>
-        <div className="mt-auto p-4 text-center text-xs text-gray-600">
+        <div className="mt-auto p-4 text-center text-xs text-gray-500">
           © {new Date().getFullYear()} {APP_NAME}
         </div>
       </aside>

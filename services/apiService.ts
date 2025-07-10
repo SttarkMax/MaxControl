@@ -154,21 +154,59 @@ const generateQuoteNumber = async (): Promise<string> => {
 export const api = {
   // Autenticação
   async login(credentials: { username: string; password: string }): Promise<{ user: LoggedInUser; token: string }> {
+    console.log('🔍 Tentando fazer login com:', credentials.username);
+    
+    // Primeiro, vamos verificar se conseguimos conectar com o Supabase
+    try {
+      const { data: testConnection, error: connectionError } = await supabase
+        .from('user_profiles')
+        .select('count')
+        .limit(1);
+      
+      console.log('✅ Conexão com Supabase:', testConnection ? 'OK' : 'ERRO');
+      if (connectionError) {
+        console.error('❌ Erro de conexão:', connectionError);
+        throw new Error(`Erro de conexão com o banco: ${connectionError.message}`);
+      }
+    } catch (error) {
+      console.error('❌ Falha na conexão:', error);
+      throw new Error('Não foi possível conectar ao banco de dados');
+    }
+
     // Buscar usuário por username na tabela user_profiles
     const { data: profiles, error: profileError } = await supabase
       .from('user_profiles')
       .select('id, username, full_name, role')
       .eq('username', credentials.username);
 
+    console.log('🔍 Resultado da busca:', { profiles, profileError });
+    console.log('📊 Número de perfis encontrados:', profiles?.length || 0);
+
     if (profileError || !profiles || profiles.length === 0) {
+      console.error('❌ Erro na busca ou usuário não encontrado:', profileError);
+      
+      // Vamos listar todos os usuários para debug
+      try {
+        const { data: allUsers, error: listError } = await supabase
+          .from('user_profiles')
+          .select('username, role');
+        console.log('📋 Todos os usuários no banco:', allUsers);
+        if (listError) console.error('❌ Erro ao listar usuários:', listError);
+      } catch (e) {
+        console.error('❌ Erro ao tentar listar usuários:', e);
+      }
+      
       throw new Error('Usuário não encontrado');
     }
 
     const profile = profiles[0];
+    console.log('✅ Usuário encontrado:', profile);
 
     // Para este sistema, vamos simular a autenticação
     // Em produção, você implementaria verificação de senha adequada
     const mockToken = `mock_token_${profile.id}_${Date.now()}`;
+
+    console.log('✅ Login realizado com sucesso para:', profile.username);
 
     return {
       user: {

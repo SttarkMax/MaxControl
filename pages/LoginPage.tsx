@@ -22,11 +22,16 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    
+    console.log('🚀 Iniciando processo de login...');
+    
     try {
       const data = await api.post('/api/auth/login', { username, password });
+      console.log('✅ Login bem-sucedido:', data);
       onLogin(data.user, data.token);
       navigate('/');
     } catch (err: any) {
+      console.error('❌ Erro no login:', err);
       setError(err.message || 'Falha no login. Verifique suas credenciais.');
     } finally {
       setIsLoading(false);
